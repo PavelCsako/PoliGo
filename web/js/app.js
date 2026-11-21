@@ -1,84 +1,72 @@
 /* app.js - screen router and UI.
  *
- * Every screen is built as an HTML string and re-rendered on navigation. All
- * user-visible text goes through T() (Store.t): English keys, translated by the
- * server table in server/i18n.py. The planet scenes live in js/stage.js.
+ * PoliGo is two entries in the student menu of the UPT mobility platform
+ * (next to Profil · Abilități lingvistice · Aplicații pentru mobilități):
  *
- * Shape of the app:
- *   top bar   PoliGo logo (-> Home) . language . theme . Home . Profile
- *   Home      globe with Romania + your destination, live countdown
- *   menu      centred in the top bar on every screen after login (two rows on a phone)
- *   screens   universities (list / map / favorite in one screen) . my subjects (explore),
- *             today / plan (calendar + steps) / documents (journey)
- *   pending   "I got accepted" waits for an admin to approve it before the journey opens
- *   intro     full-screen start window after you are accepted (and on every launch)
+ *   Choose a destination  (#destinatie, before applying)
+ *     overview   the round, your language levels, your applications
+ *     map        the faculty's real agreements on the globe / in a list / favourites
+ *     uni        course matching, your language vs. the agreement's, places,
+ *                "Apply to this agreement" (opens the platform form), LA draft PDF
+ *     subjects   your UPT subjects
+ *
+ *   Mobility guide        (#ghid, once the platform lists you as Titular/Aprobat)
+ *     today      what to do now, countdown
+ *     plan       the platform's official deadlines + the steps it does not track
+ *     docs       the platform documents explained in plain words + your scans
+ *     scanJ      scanner for papers received abroad (Claude vision)
+ *     recognition  return check: Learning Agreement vs. Transcript of Records
+ *
+ * The student, profile, languages, agreements, status and documents all come
+ * from the platform session (js/store.js). All visible text goes through T().
  */
 const App = (() => {
   const NAVS = {
-    explore: [
-      ['map', 'Universities'],
-      ['shortlist', 'Favorite'],
+    destination: [
+      ['home', 'Overview'],
+      ['map', 'Agreements'],
       ['subjects', 'My subjects'],
     ],
-    journey: [
+    guide: [
       ['today', 'Today'],
       ['plan', 'Plan'],
       ['docs', 'Documents'],
       ['scanJ', 'Scan'],
+      ['recognition', 'Recognition'],
     ],
   };
   const NAV_ICONS = {
-    map: 'landmark', shortlist: 'bookmark', subjects: 'check',
-    today: 'sun', plan: 'calendar-days', docs: 'file-text', scanJ: 'scan-line',
+    home: 'globe', map: 'landmark', subjects: 'check',
+    today: 'sun', plan: 'calendar-days', docs: 'file-text', scanJ: 'scan-line', recognition: 'shield-check',
   };
-  // the menu sits in the top bar on every screen after login, except these
-  const NO_NAV = new Set(['landing', 'auth', 'onboarding', 'admin']);
-  const KNOWN = new Set(['landing', 'auth', 'onboarding', 'uni', 'subjects', 'scanJ', 'admin', 'home', 'profile', 'map',
-    'universities', 'shortlist', 'today', 'plan', 'docs']);
-  // old screen names (links, saved state, the terminal) -> where they live now
-  // "map" is the one Universities screen; Store.state.mapTab picks list / map / favorite.
-  const ALIAS = { calendar: 'plan', timeline: 'plan', docsSetup: 'docs', shortlist: 'map', universities: 'map' };
-  // which sub-tab an old screen name opens
+  const GUIDE_SCREENS = new Set(['today', 'plan', 'docs', 'scanJ', 'recognition']);
+  const NO_NAV = new Set(['nosession', 'pitch']);
+  const KNOWN = new Set(['nosession', 'pitch', 'home', 'map', 'uni', 'subjects', 'today', 'plan', 'docs', 'scanJ', 'recognition']);
+  // menu links from the platform and old screen names -> where they live now
+  const ALIAS = {
+    destinatie: 'home', destination: 'home', ghid: 'today', guide: 'today',
+    landing: 'pitch', shortlist: 'map', universities: 'map', calendar: 'plan', timeline: 'plan',
+  };
   const ALIAS_TAB = { shortlist: 'favorite', universities: 'list' };
   const STAGES = ['before', 'arrival', 'during', 'before-return', 'after-return'];
   const STAGE_LABELS = {
     before: 'Before departure', arrival: 'Arrival (first 2 weeks)', during: 'During',
     'before-return': 'Before return', 'after-return': 'After return',
   };
-  const DOC_TYPES = ['ID card', 'Passport', 'Student ID', 'EHIC card', 'Grant contract', 'Learning Agreement', 'Other'];
-  const DOC_ICONS = {
-    'ID card': 'id-card', 'Passport': 'id-card', 'Student ID': 'id-card',
-    'EHIC card': 'id-card', 'Other': 'file-text',
+  const DOC_STAGE = { before: 'before', arrival: 'arrival', during: 'during', after: 'after-return' };
+  const DOC_STATUS = {
+    validated: ['good', 'check', 'Validated'],
+    uploaded: ['partial', 'clock', 'Uploaded, waiting for validation'],
+    missing: ['none', 'triangle-alert', 'Missing'],
+    not_yet: ['soon', 'clock', 'Not yet'],
   };
-  const PROJECT_TYPES = ['Semester exchange', 'Summer school', 'Research stay', 'Sports programme'];
-  const DURATIONS = ['One semester (5-6 months)', 'Two semesters (10-12 months)', 'Summer (1-2 months)', 'Short stay (a few weeks)'];
+  const docDone = d => d.status === 'validated' || d.status === 'uploaded';
   const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const WDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
-  const STUDENT_DOMAIN = '@student.upt.ro';
-  const KNOWN_LANGUAGES = ['English', 'Romanian', 'French', 'German', 'Spanish', 'Portuguese', 'Italian', 'Dutch', 'Finnish', 'Hungarian', 'Latvian', 'Polish'];
-  // country -> macro-region: groups destinations in setup and feeds the map's region filter
-  const REGIONS = {
-    'United Kingdom': 'Northern Europe', 'Ireland': 'Northern Europe', 'Denmark': 'Northern Europe',
-    'Sweden': 'Northern Europe', 'Norway': 'Northern Europe', 'Finland': 'Northern Europe',
-    'Iceland': 'Northern Europe', 'Estonia': 'Northern Europe', 'Latvia': 'Northern Europe', 'Lithuania': 'Northern Europe',
-    'Belgium': 'Western Europe', 'France': 'Western Europe', 'Germany': 'Western Europe',
-    'Netherlands': 'Western Europe', 'Luxembourg': 'Western Europe', 'Switzerland': 'Western Europe',
-    'Portugal': 'Southern Europe', 'Spain': 'Southern Europe', 'Italy': 'Southern Europe',
-    'Greece': 'Southern Europe', 'Malta': 'Southern Europe', 'Cyprus': 'Southern Europe',
-    'Austria': 'Central Europe', 'Poland': 'Central Europe', 'Czechia': 'Central Europe',
-    'Czech Republic': 'Central Europe', 'Slovakia': 'Central Europe', 'Hungary': 'Central Europe', 'Slovenia': 'Central Europe',
-    'Romania': 'Eastern Europe', 'Bulgaria': 'Eastern Europe', 'Moldova': 'Eastern Europe',
-    'Ukraine': 'Eastern Europe', 'Belarus': 'Eastern Europe',
-    'Croatia': 'Southeastern Europe', 'Serbia': 'Southeastern Europe', 'Albania': 'Southeastern Europe',
-    'North Macedonia': 'Southeastern Europe', 'Montenegro': 'Southeastern Europe',
-    'Bosnia and Herzegovina': 'Southeastern Europe', 'Kosovo': 'Southeastern Europe',
-  };
-  const regionOf = country => REGIONS[country] || 'Other';
 
   const history = [];
   const timers = [];
   let hashLock = false;
-  let tlOpen = null;                 // timeline: which stages are expanded
+  let tlOpen = null;                 // plan: which stages are expanded
 
   const $app = document.getElementById('app');
   const $top = document.getElementById('topBar');
@@ -96,9 +84,12 @@ const App = (() => {
   }
 
   const T = (key, vars) => Store.t(key, vars);
-  const isRo = () => Store.state.language === 'ro';
+  const isRo = () => Store.state.language !== 'en';
   const isLight = () => Store.state.theme === 'light';
   const pad2 = n => String(n).padStart(2, '0');
+  const st = () => Store.state;
+  const guide = () => Store.state.guide;
+  const hasGuide = () => !!(Store.state.guide && Store.state.guide.mobility);
 
   function toast(msg) {
     let t = document.getElementById('toast');
@@ -117,15 +108,12 @@ const App = (() => {
     if (!e) return T('Something went wrong. Is the server online?');
     const key = 'err:' + (e.code || '');
     const tr = T(key);
-    if (tr !== key) {
-      const m = /(\d+) tries left/.exec(e.message || '');
-      return m ? tr.replace('{n}', m[1]) : tr;
-    }
+    if (tr !== key) return tr;
     return e.message || T('Something went wrong. Is the server online?');
   }
 
   function setAccent() {
-    const c = Store.state.mode === 'journey' ? 'var(--accent-j)' : 'var(--accent)';
+    const c = GUIDE_SCREENS.has(Store.state.screen) ? 'var(--accent-j)' : 'var(--accent)';
     document.documentElement.style.setProperty('--accent-live', c);
   }
 
@@ -134,19 +122,18 @@ const App = (() => {
     return '<img class="flag ' + (cls || '') + '" src="/icons/flags/' + String(code).toLowerCase() + '.svg" alt="" loading="lazy"/>';
   }
 
-  // PWA install: Chrome/Edge/Android fire beforeinstallprompt; Safari never does (manual "Add to Home Screen").
-  let installPrompt = null;
-  window.addEventListener('beforeinstallprompt', ev => { ev.preventDefault(); installPrompt = ev; });
-  window.addEventListener('appinstalled', () => { installPrompt = null; });
-  const isStandalone = () => (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
-
   function startTimer(fn, ms) { timers.push(setInterval(fn, ms)); }
   function clearTimers() { while (timers.length) clearInterval(timers.pop()); }
+
+  const card = (inner, cls) => '<div class="card' + (cls ? ' ' + cls : '') + '">' + inner + '</div>';
+  const hint = (text, style) => '<p class="hint"' + (style ? ' style="' + style + '"' : '') + '>' + esc(text) + '</p>';
+  const label = text => '<p class="section-label">' + esc(text) + '</p>';
+  const ext = (href, text, cls) => '<a class="' + (cls || 'ghost') + '" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' +
+    icon('external-link', 'inline-ico') + ' ' + esc(text) + '</a>';
 
   /* -------------------------------------------------------------------- logo */
 
   let logoSeq = 0;
-  // Same artwork as logoIcon() in the PoliGo repo (js/ui.js).
   function logoIcon(size) {
     const id = 'lg' + (++logoSeq);
     return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 64 64" aria-hidden="true" style="display:block;flex:none">' +
@@ -158,7 +145,6 @@ const App = (() => {
       '<circle cx="19" cy="45" r="3.6" fill="#38BDF8"/><circle cx="52.5" cy="13" r="5" fill="#FBBF24"/></svg>';
   }
 
-  // "Poli" follows --text (white on dark, ink on light); "Go" is the gold.
   const lockup = size => '<span class="lockup">' + logoIcon(size) +
     '<span class="wordmark" style="font-size:' + Math.round(size * 0.72) + 'px">Poli<span>Go</span></span></span>';
 
@@ -190,89 +176,27 @@ const App = (() => {
 
   const nDays = n => n + ' ' + daysWord(n);
 
-  /* A day / month / year picker: three selects that write an ISO date into a hidden
-   * input (so `input.value` and 'change' events work like a normal date field).
-   * Markup: <div class="dmy" data-id|data-name data-value data-from data-to data-optional>. */
-  function wireDmy(scope) {
-    scope.querySelectorAll('.dmy:not([data-ready])').forEach(box => {
-      box.dataset.ready = '1';
-      let y0 = parseInt(box.dataset.from, 10), y1 = parseInt(box.dataset.to, 10);
-      const opt = (v, t) => '<option value="' + v + '">' + esc(t) + '</option>';
-      const mk = (cls, aria) => {
-        const wrap = document.createElement('div');
-        wrap.className = 'select-wrap ' + cls;
-        const sel = document.createElement('select');
-        sel.setAttribute('aria-label', T(aria));
-        wrap.appendChild(sel);
-        wrap.insertAdjacentHTML('beforeend', icon('chevron-down', 'sel-ico'));
-        box.appendChild(wrap);
-        return sel;
-      };
-      const sd = mk('dmy-d', 'Day'), sm = mk('dmy-m', 'Month'), sy = mk('dmy-y', 'Year');
-      const hidden = document.createElement('input');
-      hidden.type = 'hidden';
-      if (box.dataset.id) hidden.id = box.dataset.id;
-      if (box.dataset.name) hidden.dataset.f = box.dataset.name;
-      box.appendChild(hidden);
-
-      sm.innerHTML = opt('', T('Month')) + MONTHS.map((m, i) => opt(i + 1, T(m))).join('');
-      const fillYears = () => {
-        let out = opt('', T('Year'));
-        for (let y = y0; y <= y1; y++) out += opt(y, y);
-        const keep = sy.value;
-        sy.innerHTML = out;
-        sy.value = keep;
-      };
-      const fillDays = () => {
-        const n = +sm.value ? new Date(+sy.value || 2024, +sm.value, 0).getDate() : 31;
-        const cur = +sd.value;
-        let out = opt('', T('Day'));
-        for (let d = 1; d <= n; d++) out += opt(d, d);
-        sd.innerHTML = out;
-        sd.value = cur && cur <= n ? String(cur) : '';
-      };
-      const commit = () => {
-        const d = +sd.value, m = +sm.value, y = +sy.value;
-        const v = d && m && y ? y + '-' + pad2(m) + '-' + pad2(d) : '';
-        if (hidden.value !== v) {
-          hidden.value = v;
-          hidden.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      };
-      sm.onchange = sy.onchange = () => { fillDays(); commit(); };
-      sd.onchange = commit;
-      hidden.setIso = iso => {
-        const p = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
-        if (p) {
-          if (+p[1] < y0) y0 = +p[1];
-          if (+p[1] > y1) y1 = +p[1];
-          fillYears();
-          sy.value = String(+p[1]);
-          sm.value = String(+p[2]);
-          fillDays();
-          sd.value = String(+p[3]);
-          hidden.value = p[1] + '-' + p[2] + '-' + p[3];
-        } else {
-          fillYears();
-          sy.value = sm.value = '';
-          fillDays();
-          hidden.value = '';
-        }
-      };
-      hidden.setIso(box.dataset.value || '');
-    });
+  function daysUntil(iso) {
+    const t0 = new Date();
+    return Math.round((parseYmd(iso) - new Date(t0.getFullYear(), t0.getMonth(), t0.getDate())) / 86400000);
   }
 
-  const dmyField = (label, o) =>
-    '<div class="form-field"><label>' + esc(T(label)) + '</label>' +
-    '<div class="dmy" ' + (o.id ? 'data-id="' + o.id + '" ' : '') + (o.name ? 'data-name="' + o.name + '" ' : '') +
-    'data-value="' + esc(o.value || '') + '" data-from="' + o.from + '" data-to="' + o.to + '"></div></div>';
+  function dueChip(due) {
+    if (!due) return '<span class="due soon">' + esc(T('No date')) + '</span>';
+    const days = daysUntil(due);
+    const when = ' (' + fmtDate(due) + ')';
+    if (days < 0) return '<span class="due overdue">' + esc(T('Overdue by {days}', { days: nDays(-days) }) + when) + '</span>';
+    if (days === 0) return '<span class="due today">' + esc(T('Due today')) + '</span>';
+    if (days === 1) return '<span class="due soon">' + esc(T('Tomorrow')) + '</span>';
+    return '<span class="due soon">' + esc(T('In {days}', { days: nDays(days) }) + when) + '</span>';
+  }
 
   /* ---------------------------------------------------------------- countdown */
 
-  // What are we counting down to? Departure first, then the return, then nothing.
+  function mobility() { return (guide() && guide().mobility) || (st().me && st().me.mobility) || null; }
+
   function journeyClock() {
-    const mob = Store.state.mobility;
+    const mob = mobility();
     if (!mob || !mob.start_date) return null;
     const now = new Date();
     const arrival = parseYmd(mob.arrival_date || mob.start_date);
@@ -300,9 +224,9 @@ const App = (() => {
   function tickCountdown(scope) {
     const clock = journeyClock();
     if (!clock) return;
-    const label = { departure: 'Until departure', return: 'Until you come back', done: 'Welcome back!' }[clock.kind];
+    const lbl = { departure: 'Until departure', return: 'Until you come back', done: 'Welcome back!' }[clock.kind];
     const p = clockParts(clock.ms);
-    scope.querySelectorAll('[data-cd-label]').forEach(el => { el.textContent = T(label); });
+    scope.querySelectorAll('[data-cd-label]').forEach(el => { el.textContent = T(lbl); });
     scope.querySelectorAll('[data-cd]').forEach(el => {
       el.hidden = clock.kind === 'done';
       const set = (u, v) => { const b = el.querySelector('[data-u="' + u + '"]'); if (b && b.textContent !== v) b.textContent = v; };
@@ -315,13 +239,6 @@ const App = (() => {
     startTimer(() => tickCountdown(scope), 10000);
   }
 
-  // "47d 3h" for the badge on the Today button
-  function navCountdownText() {
-    const clock = journeyClock();
-    if (!clock || clock.kind === 'done') return '';
-    const p = clockParts(clock.ms);
-    return p.d > 0 ? p.d + T('d') + ' ' + p.h + T('h') : p.h + T('h') + ' ' + p.m + T('m');
-  }
 
   /* --------------------------------------------------------- history / hashes */
 
@@ -332,17 +249,22 @@ const App = (() => {
     setTimeout(() => { hashLock = false; }, 0);
   }
 
+  function resolve(screen) {
+    if (ALIAS_TAB[screen]) Store.state.mapTab = ALIAS_TAB[screen];
+    screen = ALIAS[screen] || screen;
+    if (!KNOWN.has(screen)) screen = 'home';
+    // without a platform session there is nothing to show but the way back to it
+    if (st().noSession && screen !== 'pitch') screen = 'nosession';
+    return screen;
+  }
+
   function go(screen, opts) {
     opts = opts || {};
-    if (ALIAS_TAB[screen]) {
-      Store.state.mapTab = ALIAS_TAB[screen];
-      if (Store.state.screen === 'map') { Store.saveLocal(); render(); syncHash('map'); return; }
-    }
-    screen = ALIAS[screen] || screen;
+    screen = resolve(screen);
     const cur = Store.state.screen;
-    if (screen === cur && !opts.force) { syncHash(screen); return; }
+    if (screen === cur && !opts.force) { syncHash(screen); render(); return; }
     if (opts.replace) history.length = 0;
-    else if (cur) history.push(cur);
+    else if (cur && cur !== 'nosession') history.push(cur);
     Store.state.screen = screen;
     Store.saveLocal();
     syncHash(screen);
@@ -350,29 +272,18 @@ const App = (() => {
   }
 
   function goBack() {
-    const prev = history.pop() || afterAuth();
-    Store.state.screen = prev;
-    Store.saveLocal();
-    syncHash(prev);
+    const prev = history.pop() || 'home';
+    Store.state.screen = resolve(prev);
+    syncHash(Store.state.screen);
     render();
-  }
-
-  // Home is the root of the logged-in app; the logo takes logged-out visitors to the landing page.
-  function goHome() {
-    const s = Store.state.screen;
-    if (s === 'landing' || s === 'auth') go('landing', { replace: true, force: s === 'auth' });
-    else go('home', { replace: true });
   }
 
   window.addEventListener('hashchange', () => {
     if (hashLock) return;
-    const raw = (location.hash || '').replace(/^#/, '') || 'landing';
-    if (ALIAS_TAB[raw]) Store.state.mapTab = ALIAS_TAB[raw];
-    const s = ALIAS[raw] || raw;
-    if (!KNOWN.has(s) || s === Store.state.screen) return;
-    if (s === 'landing' && Store.state.seenLanding) return;
+    const raw = (location.hash || '').replace(/^#/, '') || 'home';
+    const s = resolve(raw);
+    if (s === Store.state.screen) return;
     Store.state.screen = s;
-    Store.saveLocal();
     render();
   });
 
@@ -384,90 +295,67 @@ const App = (() => {
     if (meta) meta.content = isLight() ? '#F4F6FB' : '#070B14';
   }
 
-  function setTheme(theme) {
-    Store.setTheme(theme);
-    render();        // globes on Home / Map are rebuilt in the new palette
-  }
-
   function renderTopbar() {
     const s = Store.state.screen;
-    const out = s === 'landing' || s === 'auth';
-    const hasHome = !out && s !== 'onboarding';
     $top.hidden = false;
     const withNav = !NO_NAV.has(s);
     document.body.classList.toggle('with-nav', withNav);
+    const inGuide = GUIDE_SCREENS.has(s);
     $top.innerHTML =
       '<div class="top-left">' +
-      (history.length > 0 && s !== 'landing'
+      (history.length > 0 && withNav
         ? '<button class="back-btn" id="tb-back" aria-label="' + esc(T('Back')) + '">' + icon('arrow-left', 'sm-ico') + '<span>' + esc(T('Back')) + '</span></button>'
         : '') +
-      '<a class="top-brand" id="tb-brand" href="#' + (out ? 'landing' : 'home') + '" aria-label="PoliGo - ' + esc(T('Home')) + '">' + lockup(28) + '</a>' +
+      '<a class="top-brand" id="tb-brand" href="#destinatie" aria-label="PoliGo - ' + esc(T('Choose a destination')) + '">' + lockup(28) + '</a>' +
       '</div>' +
-      (withNav ? '<nav class="top-nav" id="topNav" aria-label="' + esc(T('Menu')) + '"></nav>' : '') +
+      (withNav
+        ? '<div class="mode-switch" role="group" aria-label="PoliGo">' +
+          '<button class="' + (inGuide ? '' : 'on') + '" id="tb-dest" aria-pressed="' + !inGuide + '" title="' + esc(T('Choose a destination')) + '" aria-label="' + esc(T('Choose a destination')) + '">' + icon('globe', 'sm-ico') + '<span>' + esc(T('Choose a destination')) + '</span></button>' +
+          '<button class="' + (inGuide ? 'on' : '') + (hasGuide() ? '' : ' locked') + '" id="tb-guide" aria-pressed="' + inGuide + '" title="' + esc(T('Mobility guide')) + '" aria-label="' + esc(T('Mobility guide')) + '">' + icon('map', 'sm-ico') + '<span>' + esc(T('Mobility guide')) + '</span></button>' +
+          '</div>'
+        : '<span></span>') +
       '<div class="top-actions">' +
       '<button class="icon-btn top-btn top-lang" id="tb-lang" aria-label="' + esc(T('Language')) + '">' + (isRo() ? 'EN' : 'RO') + '</button>' +
       '<button class="icon-btn top-btn" id="tb-theme" aria-label="' + esc(T(isLight() ? 'Switch to dark theme' : 'Switch to light theme')) + '">' + icon(isLight() ? 'moon' : 'sun') + '</button>' +
-      (hasHome && !['home', 'map', 'subjects'].includes(s) ? '<button class="icon-btn top-btn" id="tb-home" aria-label="' + esc(T('Back to menu')) + '">' + icon('house') + '</button>' : '') +
-      (hasHome ? '<button class="icon-btn top-btn' + (s === 'profile' ? ' on' : '') + '" id="tb-profile" aria-label="' + esc(T('Profile')) + '">' + icon('user') + '</button>' : '') +
-      '</div>';
+      '</div>' +
+      (withNav ? '<nav class="top-nav" id="topNav" aria-label="' + esc(T('Menu')) + '"></nav>' : '');
     const on = (id, fn) => { const el = $top.querySelector(id); if (el) el.onclick = fn; };
     on('#tb-back', () => goBack());
-    on('#tb-brand', ev => { ev.preventDefault(); goHome(); });
-    on('#tb-home', () => goHome());
-    on('#tb-profile', () => go('profile'));
-    on('#tb-theme', () => setTheme(isLight() ? 'dark' : 'light'));
-    on('#tb-lang', async () => {
-      await Store.setLanguage(isRo() ? 'en' : 'ro');
-      render();
-    });
+    on('#tb-brand', ev => { ev.preventDefault(); go('home', { replace: true }); });
+    on('#tb-dest', () => go('home', { replace: true }));
+    on('#tb-guide', () => go('today', { replace: true }));
+    on('#tb-theme', () => { Store.setTheme(isLight() ? 'dark' : 'light'); render(); });
+    on('#tb-lang', async () => { await Store.setLanguage(isRo() ? 'en' : 'ro'); render(); });
   }
 
-  // Even while on a journey, you can still be on an explore screen (browsing
-  // other opportunities) - the nav should match the screen you are actually
-  // on, not just the account-level mode.
-  function navGroupFor(screen, mode) {
-    if (NAVS.explore.some(n => n[0] === screen)) return 'explore';
-    if (NAVS.journey.some(n => n[0] === screen)) return 'journey';
-    return mode;
+  function hasOverdue() {
+    const g = guide();
+    if (!g) return false;
+    return planItems().some(i => !i.done && i.due && daysUntil(i.due) < 0);
   }
 
   function renderNav() {
-    const { mode, screen } = Store.state;
+    const { screen } = Store.state;
     const $nav = document.getElementById('topNav');
     if (!$nav) return;
-    $nav.innerHTML = '';
-    const group = navGroupFor(screen, mode);
-    const cd = group === 'journey' ? navCountdownText() : '';
+    const group = GUIDE_SCREENS.has(screen) ? 'guide' : 'destination';
     const tab = mapTabNow();
-    const isActive = id => id === 'map' ? screen === 'map' && tab !== 'favorite'
-      : id === 'shortlist' ? screen === 'map' && tab === 'favorite'
-      : screen === id;
-    for (const [id, label] of NAVS[group]) {
-      const badge = id === 'today' && cd ? '<span class="nav-cd" data-nav-cd>' + esc(cd) + '</span>' : '';
-      const dot = id === 'plan' && hasOverdueTasks() ? '<span class="nav-dot"></span>' : '';
-      const b = h('<button class="' + (isActive(id) ? 'active' : '') + '"' + (isActive(id) ? ' aria-current="page"' : '') + '><span class="ico">' + icon(NAV_ICONS[id]) + badge + dot + '</span><span>' + esc(T(label)) + '</span></button>');
+    const isActive = id => id === 'map' ? (screen === 'map' || screen === 'uni') : screen === id;
+    for (const [id, text] of NAVS[group]) {
+      const dot = id === 'plan' && hasOverdue() ? '<span class="nav-dot"></span>' : '';
+      const b = h('<button class="' + (isActive(id) ? 'active' : '') + '"' + (isActive(id) ? ' aria-current="page"' : '') + '><span class="ico">' + icon(NAV_ICONS[id]) + dot + '</span><span>' + esc(T(text)) + '</span></button>');
       b.onclick = () => {
-        // "Universities" from Favorite goes back to the last list / map view
-        if (id === 'map' && tab === 'favorite') Store.state.mapTab = Store.state.mapView || 'list';
-        if (id === 'map' && screen === 'map') { Store.saveLocal(); render(); return; }
-        go(id);
+        if (id === 'map' && tab === 'favorite' && screen === 'map') Store.state.mapTab = Store.state.mapView || 'list';
+        go(id, { force: true });
       };
       $nav.appendChild(b);
     }
-    if (cd) {
-      startTimer(() => {
-        const el = $nav.querySelector('[data-nav-cd]');
-        const txt = navCountdownText();
-        if (el && txt) el.textContent = txt;
-      }, 20000);
-    }
   }
 
-  // The background planet follows the chosen / accepted university.
+  // The background planet follows the mobility / the university you opened.
   function syncStage() {
-    const st = Store.state;
-    const id = st.mode === 'journey' && st.mobility ? st.mobility.university_id
-      : st.pending ? st.pending.university_id : st.activeUniId;
+    const mob = GUIDE_SCREENS.has(st().screen) ? mobility() : null;
+    const id = mob ? mob.university_id : st().activeUniId;
     Stage.setDestination(id ? Store.uniById(id) : null);
   }
 
@@ -481,14 +369,13 @@ const App = (() => {
     try {
       const { screen } = Store.state;
       const views = {
-        landing: viewLanding, auth: viewAuth, onboarding: viewOnboarding,
-        home: viewHome, profile: viewProfile, subjects: viewSubjects,
-        map: viewMap, uni: viewUniversity,
-        today: viewToday, plan: viewPlan,
-        scanJ: viewScan, docs: viewDocs, admin: viewAdmin,
+        nosession: viewNoSession, pitch: viewPitch,
+        home: viewHome, subjects: viewSubjects, map: viewMap, uni: viewUniversity,
+        today: viewToday, plan: viewPlan, docs: viewDocs, scanJ: viewScan, recognition: viewRecognition,
       };
       $app.innerHTML = '';
-      (views[screen] || viewLanding)($app);
+      if (GUIDE_SCREENS.has(screen) && !hasGuide()) viewGuideLocked($app);
+      else (views[screen] || viewHome)($app);
       window.scrollTo(0, 0);
     } catch (err) {
       showFatal(err);
@@ -500,37 +387,67 @@ const App = (() => {
     $app.innerHTML = '';
     const wrap = h('<div class="screen panel">' +
       '<div class="card fatal">' +
-      '<p class="section-label">' + esc(T('Error')) + '</p>' +
+      label(T('Error')) +
       '<h2>' + esc(T('This screen failed to load')) + '</h2>' +
       '<pre>' + esc(err && err.stack ? err.stack : String(err || 'unknown error')) + '</pre>' +
       '<button class="ghost" id="fat-reload">' + esc(T('Reload')) + '</button>' +
       '<button class="link" id="fat-home">' + esc(T('Back to the start')) + '</button>' +
       '</div></div>');
     wrap.querySelector('#fat-reload').onclick = () => window.location.reload();
-    wrap.querySelector('#fat-home').onclick = () => go('landing', { replace: true, force: true });
+    wrap.querySelector('#fat-home').onclick = () => go('home', { replace: true, force: true });
     $app.appendChild(wrap);
   }
 
   window.addEventListener('error', e => showFatal(e.error || e.message));
   window.addEventListener('unhandledrejection', e => showFatal(e.reason));
 
-  /* ----------------------------------------------------------- landing / auth */
+  /* ------------------------------------------------ no platform session / pitch */
 
-  function viewLanding(root) {
+  function viewNoSession(root) {
+    const p = st().platform || {};
+    const demos = p.demo_students || [];
+    const wrap = h('<div class="screen panel">' +
+      card(label(T('PoliGo')) +
+        '<h2>' + esc(T('Open PoliGo from the mobility platform')) + '</h2>' +
+        hint(T('PoliGo uses your platform session, so you do not need a second account. Sign in to the platform and pick "Choose a destination" or "Mobility guide" in the student menu.')) +
+        (p.platform_url ? ext(p.platform_url, T('Go to the mobility platform'), 'primary') : '')) +
+      (demos.length
+        ? card(label(T('Demo session (presentation only)')) +
+          hint(T('Stands in for the platform login. The students are fictional.'), 'margin-top:0') +
+          demos.map(d => '<button class="ghost demo-btn" data-demo="' + esc(d.id) + '">' + icon('user', 'inline-ico') + ' ' +
+            esc(d.name) + ' - ' + esc(T(d.label)) + '</button>').join(''))
+        : '') +
+      '<button class="link" id="ns-pitch">' + esc(T('About PoliGo')) + '</button>' +
+      '</div>');
+    wrap.querySelectorAll('[data-demo]').forEach(b => {
+      b.onclick = async () => {
+        try {
+          await Store.demoLogin(b.dataset.demo);
+          await Store.loadStrings(st().language);
+          history.length = 0;
+          go(hasGuide() ? 'today' : 'home', { replace: true, force: true });
+          maybeIntro();
+        } catch (e) { toast(errText(e)); }
+      };
+    });
+    wrap.querySelector('#ns-pitch').onclick = () => go('pitch');
+    root.appendChild(wrap);
+  }
+
+  // Presentation page - only for the pitch, never the way into the app.
+  function viewPitch(root) {
     const wrap = h('<div class="landing">' +
       '<div class="hero">' +
       '<h1>' + esc(T('Leave on Erasmus.')) + '<br/><em>' + esc(T('Return with every credit.')) + '</em></h1>' +
-      '<p class="slogan">' + esc(T('PoliGo plans your exchange from Timișoara: match UPT subjects with partner universities, keep the paperwork on schedule, read any foreign document.')) + '</p>' +
+      '<p class="slogan">' + esc(T('PoliGo lives inside the UPT mobility platform: it compares the courses of every agreement with yours, explains the documents and their deadlines, reads the papers you get abroad and checks your credits when you return.')) + '</p>' +
       '</div>' +
       '<div class="login-core">' +
-      '<button class="primary login-cta" id="login-btn">' + icon('log-in', 'inline-ico') + ' ' + esc(T('Log in with your student email')) + '</button>' +
-      '<p class="hint login-note">' + esc(T('Students of UPT only: name@student.upt.ro')) + '</p>' +
-      '<button class="link" id="skip-btn">' + esc(T('Explore without an account')) + '</button>' +
+      '<button class="primary login-cta" id="pitch-open">' + icon('arrow-right', 'inline-ico') + ' ' + esc(T('Open PoliGo')) + '</button>' +
       '</div>' +
       '<div class="features">' +
-      '<div class="feat feat-1"><span><span class="f-title">' + esc(T('Find your matches')) + '</span><span class="f-sub">' + esc(T('Partner universities ranked by how much of your 30 ECTS they cover.')) + '</span></span></div>' +
-      '<div class="feat feat-2"><span><span class="f-title">' + esc(T('Stay on schedule')) + '</span><span class="f-sub">' + esc(T('A calendar and timeline built around your mobility dates and project deadlines.')) + '</span></span></div>' +
-      '<div class="feat feat-3"><span><span class="f-title">' + esc(T('Read any document')) + '</span><span class="f-sub">' + esc(T('Scan a rental contract or registration form and get plain answers.')) + '</span></span></div>' +
+      '<div class="feat feat-1"><span><span class="f-title">' + esc(T('Choose a destination')) + '</span><span class="f-sub">' + esc(T('Your faculty\'s agreements on a globe, ranked by how many of your courses they cover, with your language level checked.')) + '</span></span></div>' +
+      '<div class="feat feat-2"><span><span class="f-title">' + esc(T('Mobility guide')) + '</span><span class="f-sub">' + esc(T('The platform\'s documents explained, with their real deadlines, plus the steps nobody tracks.')) + '</span></span></div>' +
+      '<div class="feat feat-3"><span><span class="f-title">' + esc(T('Every credit back')) + '</span><span class="f-sub">' + esc(T('A Learning Agreement draft from your matches, then a check of the transcript against it when you return.')) + '</span></span></div>' +
       '</div>' +
       '<div class="updates">' +
       '<span class="f-title">' + esc(T('Get notified at launch')) + '</span>' +
@@ -539,12 +456,7 @@ const App = (() => {
       '<button class="icon-btn" id="u-send" aria-label="' + esc(T('Notify me')) + '">' + icon('arrow-right') + '</button>' +
       '</div></div>' +
       '</div>');
-    wrap.querySelector('#login-btn').onclick = () => go('auth');
-    wrap.querySelector('#skip-btn').onclick = () => {
-      Store.state.seenLanding = true;
-      Store.saveLocal();
-      go('home', { replace: true });
-    };
+    wrap.querySelector('#pitch-open').onclick = () => go('home', { replace: true });
     wrap.querySelector('#u-send').onclick = async () => {
       const inp = wrap.querySelector('#u-email');
       if (!inp.value.trim()) { toast(T('Enter your email first')); return; }
@@ -554,612 +466,105 @@ const App = (() => {
     root.appendChild(wrap);
   }
 
-  function viewAuth(root) {
-    let email = '';
-    const wrap = h('<div class="screen panel">' +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('Log in')) + '</p>' +
-      '<div class="hint">' + esc(T('Use your student email (name@student.upt.ro). No password: we send you a 6-digit code.')) + '</div>' +
-      '<div id="a-step1">' +
-      '<div class="form-field"><label for="a-email">' + esc(T('Student email')) + '</label>' +
-      '<input id="a-email" type="email" placeholder="name.surname@student.upt.ro" autocomplete="email" inputmode="email" autocapitalize="off" /></div>' +
-      '<button class="primary" id="a-go1">' + esc(T('Send code')) + '</button>' +
-      '</div>' +
-      '<div id="a-step2" hidden>' +
-      '<div class="hint" id="a-sent"></div>' +
-      '<div class="hint" id="a-devcode"></div>' +
-      '<div class="form-field"><label for="a-code">' + esc(T('Verification code')) + '</label>' +
-      '<input id="a-code" class="num" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code" /></div>' +
-      '<button class="primary" id="a-go2">' + esc(T('Verify')) + '</button>' +
-      '<button class="link" id="a-resend">' + esc(T('Send again')) + '</button>' +
-      '</div>' +
-      '<div id="auth-err" role="alert"></div>' +
-      '<button class="link" id="a-back">' + esc(T('Back')) + '</button>' +
-      '</div></div>');
-    const errEl = wrap.querySelector('#auth-err');
-    const step1 = wrap.querySelector('#a-step1');
-    const step2 = wrap.querySelector('#a-step2');
-    const showErr = msg => { errEl.textContent = msg; };
-    const showStep = s => { step1.hidden = s !== 1; step2.hidden = s !== 2; };
+  /* ------------------------------------------------- choose a destination */
 
-    async function sendCode() {
-      const out = await Store.requestAuthCode(email);
-      wrap.querySelector('#a-sent').textContent = out.code_sent ? T('Code sent to {email}', { email }) : '';
-      const dev = wrap.querySelector('#a-devcode');
-      dev.textContent = '';
-      if (out.dev_code) {
-        dev.appendChild(document.createTextNode(T('No mail sender is configured. Dev code:')));
-        const b = document.createElement('b');
-        b.className = 'dev-code';
-        b.textContent = out.dev_code;
-        dev.appendChild(b);
-      }
-      errEl.textContent = '';
+  function fitNotice(fit) {
+    if (!fit) return '';
+    const lang = T(fit.language);
+    if (fit.ok) {
+      return '<div class="notice good">' + icon('check', 'sm-ico') + '<span>' +
+        esc(T('You have {have} in {lang} - that works.', { have: fit.have, lang })) + '</span></div>';
     }
-
-    wrap.querySelector('#a-back').onclick = () => goBack();
-    wrap.querySelector('#a-resend').onclick = async () => {
-      try { await sendCode(); } catch (e) { showErr(errText(e)); }
-    };
-    wrap.querySelector('#a-go1').onclick = async () => {
-      email = wrap.querySelector('#a-email').value.trim().toLowerCase();
-      if (!email) { showErr(T('Enter your email first')); return; }
-      if (!email.endsWith(STUDENT_DOMAIN) || email.length <= STUDENT_DOMAIN.length) {
-        showErr(T('Only @student.upt.ro addresses can log in.'));
-        return;
-      }
-      errEl.textContent = '';
-      try {
-        await sendCode();
-        showStep(2);
-        wrap.querySelector('#a-code').focus();
-      } catch (e) { showErr(errText(e)); }
-    };
-    wrap.querySelector('#a-go2').onclick = async () => {
-      const code = wrap.querySelector('#a-code').value.trim();
-      if (code.length < 4) { showErr(T('Enter the 6-digit code.')); return; }
-      try {
-        await Store.verifyAuthCode(email, code);
-        errEl.textContent = '';
-        toast(T('Welcome!'));
-        go(afterAuth(), { replace: true });
-        maybeIntro();
-      } catch (e) { showErr(errText(e)); }
-    };
-    wrap.querySelector('#a-code').onkeydown = ev => { if (ev.key === 'Enter') wrap.querySelector('#a-go2').click(); };
-    wrap.querySelector('#a-email').onkeydown = ev => { if (ev.key === 'Enter') wrap.querySelector('#a-go1').click(); };
-    root.appendChild(wrap);
+    const msg = fit.have
+      ? T('You need {need} in {lang} (you have {have}).', { need: fit.need, lang, have: fit.have })
+      : T('You need {need} in {lang}. Your platform profile has no level for it.', { need: fit.need, lang });
+    const links = (st().me && st().me.links) || {};
+    return '<div class="notice bad">' + icon('triangle-alert', 'sm-ico') + '<span>' + esc(msg) +
+      (links.languages ? ' <a href="' + esc(links.languages) + '" target="_blank" rel="noopener noreferrer">' + esc(T('Update Language skills')) + '</a>' : '') +
+      '</span></div>';
   }
 
-  /* --------------------------------------------------------------- onboarding */
+  const fitPill = fit => fit
+    ? '<span class="pill ' + (fit.ok ? 'good' : 'none') + '">' + icon(fit.ok ? 'check' : 'x', 'sm-ico') + ' ' + esc(T(fit.language)) + ' ' + esc(fit.need) + '</span>'
+    : '';
 
-  function wireOptions(scope) {
-    scope.querySelectorAll('.opt').forEach(el => {
-      el.onclick = () => {
-        if (el.dataset.multi === '1') { el.classList.toggle('on'); }
-        else {
-          scope.querySelectorAll('.opt').forEach(o => o.classList.remove('on'));
-          el.classList.add('on');
-        }
-      };
-    });
+  const placesText = a => a.places > 0 ? T('Places left in this round: {n}', { n: a.places }) : T('No places left in this round');
+
+  function applyButton(u, cls) {
+    const a = u.agreement;
+    if (!a) return '';
+    if (a.places <= 0) return '<button class="' + (cls || 'primary') + '" disabled>' + esc(T('No places left in this round')) + '</button>';
+    return ext(a.apply_url, T('Apply to this agreement'), cls || 'primary');
   }
 
-  function viewOnboarding(root) {
-    const draft = Store.state.onbDraft || (Store.state.onbDraft = { projects: [], knownLanguages: [], duration: DURATIONS[0], places: [] });
-    if (!Array.isArray(draft.knownLanguages)) draft.knownLanguages = [];
-    let step = 0;
-    const wrap = h('<div class="screen panel">' +
-      '<div class="card">' +
-      '<div class="steps" id="ob-bar"><i></i><i></i><i></i><i></i></div>' +
-      '<p class="section-label" id="ob-step"></p>' +
-      '<div id="ob-body"></div>' +
-      '<button class="ghost" id="ob-back">' + esc(T('Back')) + '</button>' +
-      '<button class="primary" id="ob-next">' + esc(T('Continue')) + '</button>' +
-      '</div></div>');
-    const stepEl = wrap.querySelector('#ob-step');
-    const bodyEl = wrap.querySelector('#ob-body');
-    const backBtn = wrap.querySelector('#ob-back');
-    const nextBtn = wrap.querySelector('#ob-next');
-    const bar = wrap.querySelector('#ob-bar');
-
-    function optRow(value, label, multi, on) {
-      return '<button class="opt ' + (on ? 'on' : '') + '" data-val="' + esc(value) + '" ' + (multi ? 'data-multi="1"' : '') + '>' +
-        '<span class="opt-ico opt-no"></span><span>' + esc(label) + '</span></button>';
-    }
-
-    const steps = [
-      {
-        label: 'Projects',
-        draw() {
-          bodyEl.innerHTML = '<p class="hint">' + esc(T('What kind of programme are you looking for? Pick any.')) + '</p>' +
-            '<div class="opt-list">' + PROJECT_TYPES.map(p => optRow(p, T(p), true, draft.projects.indexOf(p) !== -1)).join('') + '</div>';
-          wireOptions(bodyEl);
-        },
-        collect() { draft.projects = [...bodyEl.querySelectorAll('.opt.on')].map(o => o.dataset.val); },
-      },
-      {
-        label: 'Known languages',
-        draw() {
-          bodyEl.innerHTML = '<p class="hint">' + esc(T('Which languages do you already know? Add as many as you like.')) + '</p>' +
-            '<div class="form-field"><div class="select-wrap"><select id="lang-pick">' +
-            KNOWN_LANGUAGES.map(l => '<option value="' + esc(l) + '">' + esc(T(l)) + '</option>').join('') +
-            '</select>' + icon('chevron-down', 'sel-ico') + '</div></div>' +
-            '<button class="ghost" id="lang-add">' + esc(T('Add')) + '</button>' +
-            '<div class="chips" id="lang-chips" style="margin-top:12px"></div>';
-          const chipsEl = bodyEl.querySelector('#lang-chips');
-          const drawChips = () => {
-            chipsEl.innerHTML = draft.knownLanguages.map(l =>
-              '<button class="chip on" data-lang="' + esc(l) + '">' + esc(T(l)) + ' ' + icon('x', 'sm-ico') + '</button>').join('');
-            chipsEl.querySelectorAll('[data-lang]').forEach(c => {
-              c.onclick = () => { draft.knownLanguages = draft.knownLanguages.filter(x => x !== c.dataset.lang); drawChips(); };
-            });
-          };
-          bodyEl.querySelector('#lang-add').onclick = () => {
-            const v = bodyEl.querySelector('#lang-pick').value;
-            if (v && draft.knownLanguages.indexOf(v) === -1) draft.knownLanguages.push(v);
-            drawChips();
-          };
-          drawChips();
-        },
-        collect() {},
-      },
-      {
-        label: 'Length',
-        draw() {
-          bodyEl.innerHTML = '<p class="hint">' + esc(T('How long do you want to go?')) + '</p>' +
-            '<div class="opt-list">' + DURATIONS.map(d => optRow(d, T(d), false, draft.duration === d)).join('') + '</div>';
-          wireOptions(bodyEl);
-        },
-        collect() {
-          const on = bodyEl.querySelector('.opt.on');
-          draft.duration = on ? on.dataset.val : DURATIONS[0];
-        },
-      },
-      {
-        label: 'Places',
-        draw() {
-          const countries = [...new Set(Store.state.universities.map(u => u.country))].sort();
-          const list = countries.length ? countries : ['Portugal', 'Spain', 'Italy', 'Germany', 'France'];
-          const groups = {};
-          for (const c of list) (groups[regionOf(c)] = groups[regionOf(c)] || []).push(c);
-          bodyEl.innerHTML = '<p class="hint">' + esc(T('Preferred destinations, used to rank deadlines and matches. Leave empty for everything.')) + '</p>' +
-            Object.keys(groups).sort().map(region =>
-              '<p class="section-label" style="margin-top:14px">' + esc(T(region)) + '</p>' +
-              '<div class="opt-list">' + groups[region].map(c => optRow(c, T(c), true, draft.places.indexOf(c) !== -1)).join('') + '</div>'
-            ).join('');
-          wireOptions(bodyEl);
-        },
-        collect() { draft.places = [...bodyEl.querySelectorAll('.opt.on')].map(o => o.dataset.val); },
-      },
-    ];
-
-    function drawStep() {
-      stepEl.textContent = T('Step {n} of {total}', { n: step + 1, total: steps.length }) + ' - ' + T(steps[step].label);
-      [...bar.children].forEach((seg, i) => seg.classList.toggle('on', i <= step));
-      backBtn.style.visibility = step === 0 ? 'hidden' : 'visible';
-      nextBtn.textContent = step === steps.length - 1 ? T('Start') : T('Continue');
-      steps[step].draw();
-      window.scrollTo(0, 0);
-    }
-
-    backBtn.onclick = () => { steps[step].collect(); step = Math.max(0, step - 1); drawStep(); };
-    nextBtn.onclick = () => {
-      steps[step].collect();
-      if (step < steps.length - 1) { step += 1; drawStep(); return; }
-      finishOnboarding(draft);
-    };
-
-    drawStep();
-    root.appendChild(wrap);
+  function roundCard() {
+    const r = st().me && st().me.round;
+    if (!r) return '';
+    const left = daysUntil(r.applications_close);
+    const open = daysUntil(r.applications_open) <= 0 && left >= 0;
+    return card(label(T('Application round')) +
+      '<h2 style="font-size:17px">' + esc(T(r.name)) + '</h2>' +
+      '<p class="hint" style="margin:6px 0 0">' +
+      esc(T('Applications: {from} - {to}', { from: fmtDate(r.applications_open), to: fmtDate(r.applications_close) })) + '<br/>' +
+      esc(T('Results: {date}', { date: fmtDate(r.results) })) + ' · ' +
+      esc(T('Mobility: {from} - {to}', { from: fmtDate(r.mobility_start), to: fmtDate(r.mobility_end) })) + '</p>' +
+      (open ? '<p class="pending-pill"><span class="pill soon">' + icon('clock', 'sm-ico') + ' ' +
+        esc(left === 0 ? T('Applications close today') : T('{days} left to apply', { days: nDays(left) })) + '</span></p>' : ''));
   }
-
-  async function finishOnboarding(draft) {
-    await Store.saveProfile({ onboarding: JSON.stringify(draft) });
-    Store.state.onbDraft = null;
-    go('home', { replace: true });
-  }
-
-  function afterAuth() {
-    const st = Store.state;
-    if (st.mode === 'journey' && st.mobility) return 'home';
-    if (st.sessionEmail && !(st.user && st.user.onboarding)) return 'onboarding';
-    return 'home';
-  }
-
-  /* ----------------------------------------------------------------- home */
 
   function viewHome(root) {
-    const st = Store.state;
-    const mob = st.mode === 'journey' ? st.mobility : null;
-    const pend = !mob && st.pending ? st.pending : null;
-    const uni = mob ? Store.uniById(mob.university_id)
-      : pend ? Store.uniById(pend.university_id)
-      : (st.activeUniId ? Store.uniById(st.activeUniId) : null);
-
-    let info;
-    if (pend && uni) {
-      info = '<div class="card home-info">' +
-        '<div class="route">' +
-        '<span class="route-city">' + flagImg('RO') + '<b>Timișoara</b></span>' +
-        '<span class="route-arrow">' + icon('arrow-right') + '</span>' +
-        '<span class="route-city">' + flagImg(uni.country_code) + '<b>' + esc(uni.city) + '</b></span>' +
-        '</div>' +
-        '<p class="hint route-sub">' + esc(uni.name) + ' - ' + esc(T(uni.country)) +
-        '<br/>' + esc(fmtDate(pend.start_date)) + ' - ' + esc(fmtDate(pend.end_date)) + '</p>' +
-        '<p class="pending-pill"><span class="pill partial">' + icon('clock', 'sm-ico') + ' ' + esc(T('Waiting for approval')) + '</span></p>' +
-        '<p class="hint">' + esc(T('The Erasmus office has to confirm your acceptance. Your journey (steps, countdown, documents) opens as soon as it is approved.')) + '</p>' +
-        '<div class="home-actions"><button class="primary" id="h-check">' + esc(T('Check again')) + '</button>' +
-        '<button class="ghost" id="h-change">' + esc(T('Choose another')) + '</button></div>' +
-        '</div>';
-    } else if (uni) {
-      info = '<div class="card home-info">' +
-        '<div class="route">' +
-        '<span class="route-city">' + flagImg('RO') + '<b>Timișoara</b></span>' +
-        '<span class="route-arrow">' + icon('arrow-right') + '</span>' +
-        '<span class="route-city">' + flagImg(uni.country_code) + '<b>' + esc(uni.city) + '</b></span>' +
-        '</div>' +
-        '<p class="hint route-sub">' + esc(uni.name) + ' - ' + esc(T(uni.country)) +
-        (mob ? '<br/>' + esc(fmtDate(mob.start_date)) + ' - ' + esc(fmtDate(mob.end_date)) : '') + '</p>' +
-        (mob
-          ? countdownHtml() + '<button class="link" id="h-browse">' + esc(T('Browse other universities')) + '</button>'
-          : '<div class="home-actions"><button class="primary" id="h-open">' + esc(T('Open this university')) + '</button>' +
-            '<button class="ghost" id="h-change">' + esc(T('Choose another')) + '</button></div>') +
-        '</div>';
-    } else {
-      info = '<div class="card home-info">' +
-        '<p class="section-label">' + esc(T('Your Erasmus')) + '</p>' +
-        '<h2>' + esc(T('Where do you want to go?')) + '</h2>' +
-        '<p class="hint">' + esc(T('Tap a dot on the globe or open the map to see how many of your subjects each partner university covers.')) + '</p>' +
-        '<button class="primary" id="h-map">' + icon('map', 'inline-ico') + ' ' + esc(T('Explore the map')) + '</button>' +
-        '</div>';
-    }
+    const me = st().me;
+    if (!me) { viewNoSession(root); return; }
+    const s = me.student;
+    const uni = st().activeUniId ? Store.uniById(st().activeUniId) : null;
+    const apps = me.applications || [];
+    const statusPill = a => '<span class="pill ' + (a.guide ? 'good' : 'partial') + '">' + esc(T(a.status)) + '</span>';
+    const appsHtml = apps.length
+      ? card(label(T('Your applications (from the platform)')) +
+        apps.map(a => {
+          const u = Store.uniById(a.university_id);
+          return '<div class="task-card"><span style="flex:1;min-width:0"><span class="t-title">' + esc(u ? u.name : a.university_id) + '</span>' +
+            '<span class="t-meta">' + statusPill(a) + ' ' + esc(T(a.round ? a.round.name : '')) + '</span></span></div>';
+        }).join('') +
+        (hasGuide() ? '<button class="primary" id="h-guide">' + icon('map', 'inline-ico') + ' ' + esc(T('Open the mobility guide')) + '</button>' : ''))
+      : '';
+    const langs = (s.languages || []).map(l => '<span class="pill kw">' + esc(T(l.language)) + ' ' + esc(l.level) + '</span>').join(' ');
+    const isDemo = st().platform && st().platform.mode === 'demo';
 
     const wrap = h('<div class="screen panel home">' +
       '<div class="home-globe globe-box" id="home-globe"></div>' +
-      '<div class="home-side">' + info + '</div></div>');
+      '<div class="home-side">' +
+      card(label(T('Choose a destination')) +
+        '<h2>' + esc(T('Hi, {name}', { name: s.name.split(' ')[0] })) + '</h2>' +
+        hint(s.faculty_name + ' · ' + T(s.program) + ' · ' + T('year {n}', { n: s.year }), 'margin:6px 0 18px') +
+        '<p class="hint" style="margin:0 0 10px">' + esc(T('Your languages (Language skills):')) + '</p>' +
+        '<p style="margin:0 0 24px; display:flex; flex-wrap:wrap; gap:8px">' + (langs || esc(T('none registered'))) + '</p>' +
+        (uni
+          ? '<div class="home-actions"><button class="primary" id="h-open">' + flagImg(uni.country_code, 'inline-ico') + ' ' + esc(T('Open {city}', { city: uni.city })) + '</button>' +
+            '<button class="ghost" id="h-map">' + esc(T('All agreements')) + '</button></div>'
+          : '<button class="primary" id="h-map">' + icon('map', 'inline-ico') + ' ' + esc(T('See your faculty\'s agreements')) + '</button>'), 'home-info') +
+      roundCard() +
+      appsHtml +
+      (isDemo ? '<button class="link" id="h-demo-out">' + esc(T('Switch demo student')) + '</button>' : '') +
+      '</div></div>');
 
     const bind = (id, fn) => { const el = wrap.querySelector(id); if (el) el.onclick = fn; };
     bind('#h-map', () => go('map'));
     bind('#h-open', () => go('uni'));
-    bind('#h-change', () => go('map'));
-    bind('#h-browse', () => go('map'));
-    bind('#h-check', () => checkApproval(false));
-    if (mob) startCountdown(wrap);
-    if (pend) startTimer(() => checkApproval(true), 30000);   // approval shows up on its own
-
-    Stage.homeGlobe(wrap.querySelector('#home-globe'), uni, id => { st.activeUniId = id; go('uni'); });
+    bind('#h-guide', () => go('today'));
+    bind('#h-demo-out', async () => { await Store.demoLogout(); history.length = 0; go('nosession', { replace: true, force: true }); });
+    Stage.homeGlobe(wrap.querySelector('#home-globe'), uni, id => { st().activeUniId = id; go('uni'); });
     root.appendChild(wrap);
   }
-
-  // Has an admin approved the pending mobility? quiet = background poll (no toast).
-  let checking = false;
-  async function checkApproval(quiet) {
-    if (checking) return;
-    checking = true;
-    try {
-      await Store.refresh();
-      const st = Store.state;
-      if (st.mode === 'journey' && st.mobility && !st.pending) {
-        tlOpen = null;
-        go('home', { replace: true, force: true });
-        await showIntro();
-      } else if (!st.pending) {
-        render();
-        if (!quiet) toast(T('Your request was not approved. Check your messages in Profile.'));
-      } else if (!quiet) {
-        toast(T('Still waiting for approval'));
-      }
-    } catch (e) {
-      if (!quiet) toast(errText(e));
-    } finally {
-      checking = false;
-    }
-  }
-
-  /* ----------------------------------------------------------------- intro */
-
-  // The start window after you are accepted (and on every launch while you are): the
-  // globe flies from Timisoara to the partner city, the arc is drawn, the countdown starts.
-  function showIntro() {
-    const mob = Store.state.mobility;
-    const uni = mob && Store.uniById(mob.university_id);
-    if (!uni || document.getElementById('intro')) return Promise.resolve();
-    return new Promise(resolve => {
-      const ov = h('<div id="intro" data-theme="dark" role="dialog" aria-modal="true" aria-label="' + esc(T('Your Erasmus journey')) + '">' +
-        '<div class="intro-globe" id="intro-globe"></div>' +
-        '<div class="intro-copy">' +
-        '<p class="intro-cap" id="in-cap"></p>' +
-        '<div class="intro-final">' +
-        '<h1 class="intro-greet">' + esc(uni.greeting || '') + '</h1>' +
-        '<p class="intro-line">' + esc(T('Congratulations! You are going to {city}, {country}.', { city: uni.city, country: T(uni.country) })) + '</p>' +
-        countdownHtml() +
-        '<button class="primary" id="in-go">' + esc(T('Start my journey')) + '</button>' +
-        '</div>' +
-        '<button class="link intro-skip" id="in-skip">' + esc(T('Skip')) + '</button>' +
-        '</div></div>');
-      document.body.appendChild(ov);
-      document.body.classList.add('no-scroll');
-      const cap = ov.querySelector('#in-cap');
-      tickCountdown(ov);
-      const tick = setInterval(() => tickCountdown(ov), 10000);
-      let scene = null;
-      let closed = false;
-
-      const close = () => {
-        if (closed) return;
-        closed = true;
-        clearInterval(tick);
-        document.removeEventListener('keydown', onKey);
-        document.body.classList.remove('no-scroll');
-        ov.classList.add('leaving');
-        setTimeout(() => ov.remove(), 260);
-        resolve();
-      };
-      const onKey = ev => { if (ev.key === 'Escape') close(); };
-      document.addEventListener('keydown', onKey);
-
-      const showFinal = () => {
-        cap.textContent = '';
-        ov.classList.add('done');
-        const goBtn = ov.querySelector('#in-go');
-        if (goBtn) goBtn.focus({ preventScroll: true });
-      };
-      ov.querySelector('#in-go').onclick = close;
-      ov.querySelector('#in-skip').onclick = () => (ov.classList.contains('done') ? close() : (scene && scene.finish(), showFinal()));
-
-      try { scene = Stage.introGlobe(ov.querySelector('#intro-globe'), uni); } catch (err) { console.warn('[intro]', err); }
-      if (!scene) { showFinal(); return; }
-      scene.play(step => {
-        if (closed || ov.classList.contains('done')) return;
-        if (step === 1) cap.textContent = T('You are here: Timișoara');
-        else if (step === 2) cap.textContent = T('Your destination: {city}, {country}', { city: uni.city, country: T(uni.country) });
-        else showFinal();
-      }).catch(() => showFinal());
-    });
-  }
-
-  function maybeIntro() {
-    const st = Store.state;
-    if (st.mode === 'journey' && st.mobility) return showIntro();
-    return Promise.resolve();
-  }
-
-  /* ------------------------------------------- documents: shared row builder */
-
-  function fmtSize(n) {
-    if (!n) return '';
-    if (n < 1024) return n + ' B';
-    if (n < 1048576) return Math.round(n / 1024) + ' KB';
-    return (n / 1048576).toFixed(1) + ' MB';
-  }
-
-  function docMeta(d) {
-    return [
-      d.file_name || T('Manual entry'),
-      d.size ? fmtSize(d.size) : '',
-      d.doc_number ? T('No.') + ' ' + d.doc_number : '',
-      d.expires_on ? T('Expires') + ' ' + fmtDate(d.expires_on) : '',
-      d.issued_on ? T('Issued') + ' ' + fmtDate(d.issued_on) : '',
-      d.notes,
-    ].filter(Boolean).join(' - ');
-  }
-
-  function readDocFields(scope) {
-    const out = {};
-    scope.querySelectorAll('[data-f]').forEach(inp => { out[inp.dataset.f] = inp.value || null; });
-    return out;
-  }
-
-  const yearNow = new Date().getFullYear();
-
-  function docRow(d, onChange) {
-    const row = h('<div class="doc-row" data-id="' + d.id + '">' +
-      '<span class="doc-ico">' + icon(DOC_ICONS[d.doc_type] || 'file-text') + '</span>' +
-      '<span style="flex:1;min-width:0"><span class="doc-name">' + esc(T(d.doc_type)) + '</span><br/>' +
-      '<span class="doc-meta">' + esc(docMeta(d)) + '</span></span>' +
-      '<button class="icon-btn" data-view aria-label="' + esc(T('Open the saved copy')) + '">' + icon('eye') + '</button>' +
-      '<button class="icon-btn" data-del aria-label="' + esc(T('Remove document')) + '">' + icon('trash-2') + '</button>' +
-      '</div>');
-    const edit = h('<details class="doc-edit"><summary>' + esc(T('Details and manual data')) + '</summary>' +
-      '<div class="form-field"><label>' + esc(T('Number')) + '</label><input data-f="doc_number" value="' + esc(d.doc_number || '') + '" placeholder="' + esc(T('e.g. RX123456')) + '" /></div>' +
-      dmyField('Issued on', { name: 'issued_on', value: d.issued_on, from: yearNow - 25, to: yearNow }) +
-      dmyField('Expires on', { name: 'expires_on', value: d.expires_on, from: yearNow - 1, to: yearNow + 20 }) +
-      '<div class="form-field"><label>' + esc(T('Notes')) + '</label><input data-f="notes" value="' + esc(d.notes || '') + '" placeholder="' + esc(T('Anything to remember')) + '" /></div>' +
-      '<button class="ghost" data-save>' + esc(T('Save details')) + '</button>' +
-      '</details>');
-    wireDmy(edit);
-    edit.querySelector('[data-save]').onclick = async ev => {
-      ev.preventDefault();
-      try {
-        await Store.updateUserDoc(d.id, readDocFields(edit));
-        toast(T('Details saved'));
-        if (onChange) onChange();
-      } catch (e) { toast(T('Could not save details')); }
-    };
-    row.appendChild(edit);
-
-    row.querySelector('[data-view]').onclick = async () => {
-      const blob = await Store.getDocBlob(d.doc_type);
-      if (!blob) { toast(T('No file on this device. Keep the data as text in the details.')); return; }
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    };
-    row.querySelector('[data-del]').onclick = async () => {
-      await Store.deleteUserDoc(d.id);
-      await Store.deleteDocBlob(d.doc_type);
-      toast(T('Document removed'));
-      if (onChange) onChange();
-    };
-    return row;
-  }
-
-  const typeSelect = () => '<div class="select-wrap"><select id="doc-type">' +
-    DOC_TYPES.map(t => '<option value="' + esc(t) + '">' + esc(T(t)) + '</option>').join('') + '</select>' + icon('chevron-down', 'sel-ico') + '</div>';
-
-  /* ------------------------------------------------------ deadlines + profile */
-
-  function projectDeadlines() {
-    const st = Store.state;
-    let types = [];
-    try {
-      const onb = JSON.parse((st.user && st.user.onboarding) || 'null');
-      if (onb && Array.isArray(onb.projects) && onb.projects.length) types = onb.projects;
-    } catch (e) { /* fall back to all */ }
-    if (!types.length) types = PROJECT_TYPES;
-    const mob = st.mobility;
-    const out = [];
-    for (const d of (st.deadlines || [])) {
-      if (types.indexOf(d.type) === -1) continue;
-      let when = null;
-      if (mob && mob.start_date) {
-        const s = parseYmd(mob.start_date);
-        when = new Date(s.getFullYear(), s.getMonth() - d.months_before, s.getDate());
-      }
-      out.push({ type: d.type, title: d.title, note: d.note, months_before: d.months_before, date: when });
-    }
-    return out;
-  }
-
-  function onbLine(user) {
-    if (!user || !user.onboarding) return '';
-    let onb = null;
-    try { onb = JSON.parse(user.onboarding); } catch (e) { return ''; }
-    if (!onb) return '';
-    const bits = [];
-    if (onb.projects && onb.projects.length) bits.push(onb.projects.map(T).join(' / '));
-    if (onb.duration) bits.push(T(onb.duration));
-    if (onb.knownLanguages && onb.knownLanguages.length) bits.push(onb.knownLanguages.map(T).join(', '));
-    if (onb.places && onb.places.length) bits.push(onb.places.map(T).join(', '));
-    return bits.join(' - ');
-  }
-
-  function viewProfile(root) {
-    const u = Store.state.user || {};
-    const st = Store.state;
-    const ob = onbLine(u);
-    const sel = (cond) => (cond ? 'selected' : '');
-    const wrap = h('<div class="screen panel">' +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('Profile')) + '</p>' +
-      '<div class="form-field"><label>' + esc(T('Faculty')) + '</label>' +
-      '<div class="select-wrap"><select id="f-faculty">' +
-      '<option value="AC" ' + sel(u.faculty === 'AC' || !u.faculty) + '>' + esc(T('AC - Computers and Information Technology')) + '</option>' +
-      '<option value="Other" ' + sel(u.faculty && u.faculty !== 'AC') + '>' + esc(T('Other')) + '</option>' +
-      '</select>' + icon('chevron-down', 'sel-ico') + '</div></div>' +
-      '<div class="form-field"><label>' + esc(T('Program')) + '</label>' +
-      '<input id="f-program" list="programs" value="' + esc(u.program || 'Computer Science') + '" />' +
-      '<datalist id="programs"><option>Computer Science</option><option>Information Technology</option><option>Automation</option></datalist></div>' +
-      '<div class="form-field"><label>' + esc(T('Year')) + '</label>' +
-      '<div class="select-wrap"><select id="f-year">' + [1, 2, 3, 4].map(y => '<option ' + sel(u.year === y) + '>' + y + '</option>').join('') + '</select>' + icon('chevron-down', 'sel-ico') + '</div></div>' +
-      '<div class="form-field"><label>' + esc(T('Semester abroad')) + '</label>' +
-      '<div class="select-wrap"><select id="f-sem">' +
-      '<option value="fall" ' + sel(u.semester_abroad === 'fall') + '>' + esc(T('Fall')) + '</option>' +
-      '<option value="spring" ' + sel(u.semester_abroad === 'spring') + '>' + esc(T('Spring')) + '</option>' +
-      '</select>' + icon('chevron-down', 'sel-ico') + '</div></div>' +
-      '<button class="primary" id="save-profile">' + esc(T('Save and pick subjects')) + '</button>' +
-      '</div>' +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('Settings')) + '</p>' +
-      (ob ? '<p class="hint" style="margin-top:0">' + esc(ob) + '</p>' : '') +
-      '<button class="ghost" id="redo-onb">' + esc(T('Redo setup')) + '</button>' +
-      '</div>' +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('App on your phone')) + '</p>' +
-      (isStandalone()
-        ? '<p class="hint" style="margin:0">' + esc(T('You are using the installed app.')) + '</p>'
-        : '<p class="hint" style="margin-top:0">' + esc(T('Open this site on your phone, then: Android (Chrome) - menu, "Install app"; iPhone (Safari) - Share, "Add to Home Screen". PoliGo then opens full screen, like a normal app.')) + '</p>' +
-          (installPrompt ? '<button class="primary" id="install-app">' + icon('arrow-right', 'inline-ico') + ' ' + esc(T('Install the app')) + '</button>' : '')) +
-      '</div>' +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('Messages')) + '</p>' +
-      '<div id="inbox-list"><p class="hint" style="margin:0 0 8px">' + esc(T('Loading messages...')) + '</p></div>' +
-      '<div class="form-field"><textarea id="inbox-reply" rows="2" placeholder="' + esc(T('Reply to the admins...')) + '" aria-label="' + esc(T('Reply to the admins...')) + '"></textarea></div>' +
-      '<button class="ghost" id="inbox-send">' + esc(T('Send')) + '</button>' +
-      '</div>' +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('Account')) + '</p>' +
-      '<div class="doc-row">' +
-      '<span class="doc-ico">' + icon('user') + '</span>' +
-      '<span style="flex:1;min-width:0"><span class="doc-name">' + esc(st.sessionEmail || T('Guest on this device')) + '</span><br/>' +
-      '<span class="doc-meta">' + esc(st.sessionEmail ? T('Signed in') : T('Progress is stored only on this device')) + '</span></span>' +
-      '</div>' +
-      (st.sessionEmail
-        ? '<button class="ghost" id="logout">' + icon('log-out', 'inline-ico') + ' ' + esc(T('Log out')) + '</button>'
-        : '<button class="primary" id="go-auth">' + icon('log-in', 'inline-ico') + ' ' + esc(T('Log in with your student email')) + '</button>') +
-      '</div>' +
-      '</div>');
-
-    (async () => {
-      const box = wrap.querySelector('#inbox-list');
-      const inbox = await Store.getInbox();
-      if (!inbox.messages.length) {
-        box.innerHTML = '<p class="hint" style="margin:0 0 8px">' + esc(T('No messages yet. Admin notices appear here.')) + '</p>';
-        return;
-      }
-      box.innerHTML = inbox.messages.map(m =>
-        '<div class="doc-row"><span class="doc-ico">' + icon('info') + '</span>' +
-        '<span style="flex:1;min-width:0"><span class="doc-name">' + esc(m.from_admin ? T('Admin') : T('You')) +
-        (m.read || !m.from_admin ? '' : ' <span class="badge due">' + esc(T('New')) + '</span>') + '</span>' +
-        '<span class="doc-meta">' + esc(m.ts) + '</span><br/>' + esc(m.text) + '</span></div>'
-      ).join('');
-    })();
-    Store.markInboxRead();
-
-    wrap.querySelector('#save-profile').onclick = async () => {
-      await Store.saveProfile({
-        faculty: wrap.querySelector('#f-faculty').value,
-        program: wrap.querySelector('#f-program').value,
-        year: parseInt(wrap.querySelector('#f-year').value, 10),
-        semester_abroad: wrap.querySelector('#f-sem').value,
-      });
-      go('subjects');
-    };
-    wrap.querySelector('#redo-onb').onclick = () => go('onboarding');
-    const installBtn = wrap.querySelector('#install-app');
-    if (installBtn) {
-      installBtn.onclick = async () => {
-        const p = installPrompt;
-        installPrompt = null;
-        if (!p) return;
-        p.prompt();
-        try { await p.userChoice; } catch (e) { /* dismissed */ }
-        render();
-      };
-    }
-    wrap.querySelector('#inbox-send').onclick = async () => {
-      const ta = wrap.querySelector('#inbox-reply');
-      const text = ta.value.trim();
-      if (!text) { toast(T('Nothing to send')); return; }
-      try {
-        await Store.replyInbox(text);
-        ta.value = '';
-        toast(T('Sent to the admins'));
-        render();
-      } catch (e) { toast(errText(e)); }
-    };
-    const logoutBtn = wrap.querySelector('#logout');
-    if (logoutBtn) {
-      logoutBtn.onclick = async () => {
-        await Store.logout();
-        history.length = 0;
-        go('landing', { replace: true, force: true });
-      };
-    }
-    const authBtn = wrap.querySelector('#go-auth');
-    if (authBtn) authBtn.onclick = () => go('auth');
-    root.appendChild(wrap);
-  }
-
-  /* ------------------------------------------------------ subjects / explore */
 
   function viewSubjects(root) {
-    const courses = Store.state.homeCourses;
+    const courses = st().homeCourses;
     const selected = new Set(courses.map(c => c.id));
+    const me = st().me;
     const list = h('<div class="screen panel">' +
       '<div class="card">' +
-      '<p class="section-label">' + esc(T('My subjects')) + ' - ' + esc((Store.state.user && Store.state.user.program) || 'Computer Science') + '</p>' +
+      label(T('My subjects') + ' - ' + T((me && me.student.program) || 'Computer Science')) +
+      hint(T('Your semester at UPT, from the faculty curriculum. These are the courses PoliGo looks for at each partner.'), 'margin-top:0') +
       '<div id="course-list"></div>' +
       '<p class="hint" id="ects-line"></p>' +
       '<button class="primary" id="find-matches">' + esc(T('Find my matches')) + '</button>' +
@@ -1188,44 +593,38 @@ const App = (() => {
 
   const siteHost = url => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return ''; } };
 
-  // "fhstp.ac.at" with an external-link icon, opens the university's own site
   function siteLink(u, cls) {
     if (!u || !u.website) return '';
     return '<a class="uni-link ' + (cls || '') + '" href="' + esc(u.website) + '" target="_blank" rel="noopener noreferrer">' +
       icon('external-link', 'sm-ico') + '<span>' + esc(siteHost(u.website)) + '</span></a>';
   }
 
-  const metaLine = u => esc(u.city) + ', ' + esc(T(u.country)) + ' - ' + esc((u.languages || []).map(T).join(', '));
+  const metaLine = u => esc(u.city) + ', ' + esc(T(u.country)) +
+    (u.agreement ? ' - ' + esc(placesText(u.agreement)) : '');
 
   function uniCard(u) {
-    const card = h('<div class="card uni-card" role="link" tabindex="0">' +
+    const c = h('<div class="card uni-card" role="link" tabindex="0">' +
       flagImg(u.country_code) +
       '<span><span class="name">' + esc(u.name) + '</span><br/>' +
-      '<span class="meta">' + metaLine(u) + '</span><br/>' + siteLink(u) + '</span>' +
+      '<span class="meta">' + metaLine(u) + '</span><br/>' + fitPill(u.agreement && u.agreement.language_fit) + ' ' + siteLink(u) + '</span>' +
       '<span class="badge"><span class="num">' + u.summary.matched + '/' + u.summary.total + '</span><br/><span class="lbl">' + esc(T('match')) + '</span></span>' +
       '</div>');
-    const open = () => { Store.state.activeUniId = u.id; go('uni'); };
-    card.onclick = ev => { if (!ev.target.closest('a')) open(); };
-    card.onkeydown = ev => { if (ev.key === 'Enter' && ev.target === card) open(); };
-    return card;
+    const open = () => { st().activeUniId = u.id; go('uni'); };
+    c.onclick = ev => { if (!ev.target.closest('a')) open(); };
+    c.onkeydown = ev => { if (ev.key === 'Enter' && ev.target === c) open(); };
+    return c;
   }
 
-  function tierOf(u) {
-    const s = u.summary || {};
-    const f = s.total ? s.matched / s.total : 0;
-    return f >= 0.6 ? 'good' : f >= 0.3 ? 'partial' : 'weak';
-  }
-
-  // Two dropdowns: language and country.
+  // Two dropdowns: the agreement's language of instruction and the country.
   function buildFilters(el, onChange) {
-    const langs = [...new Set(Store.state.universities.flatMap(u => u.languages || []))].sort();
-    const countries = [...new Set(Store.state.universities.map(u => u.country))].sort();
-    const f = Store.state.filters;
-    f.region = null; f.quality = null;   // no longer offered - drop any value saved from before
+    const langs = [...new Set(st().universities.map(u => u.agreement && u.agreement.language).filter(Boolean))].sort();
+    const countries = [...new Set(st().universities.map(u => u.country))].sort();
+    const f = st().filters;
+    f.region = null; f.quality = null;
     const selectOf = (kind, allLabel, options) =>
       '<div class="select-wrap"><select data-filter="' + kind + '">' +
       '<option value="">' + esc(allLabel) + '</option>' +
-      options.map(([value, label]) => '<option value="' + esc(value) + '" ' + (f[kind] === value ? 'selected' : '') + '>' + esc(label) + '</option>').join('') +
+      options.map(([value, text]) => '<option value="' + esc(value) + '" ' + (f[kind] === value ? 'selected' : '') + '>' + esc(text) + '</option>').join('') +
       '</select>' + icon('chevron-down', 'sel-ico') + '</div>';
     el.innerHTML = '<div class="filter-grid">' +
       selectOf('lang', T('All languages'), langs.map(l => [l, T(l)])) +
@@ -1236,84 +635,78 @@ const App = (() => {
     });
   }
 
-  // Universities: one screen, three views. On a phone the tab row switches
-  // List / Map / Favorite; on a wide screen the globe and the list sit side by
-  // side (app.css), so the row shows only All universities / Favorite.
   function mapTabNow() {
-    const t = Store.state.mapTab;
-    return t === 'map' || t === 'favorite' ? t : 'list';   // 'all' (old saved state) -> list
+    const t = st().mapTab;
+    return t === 'map' || t === 'favorite' ? t : 'list';
   }
 
+  // Agreements: one screen, three views (list / map / favourites).
   function viewMap(root) {
     const tab = mapTabNow();
-    // #filters / #uni-list / #sl-list stay DIRECT children of .card - the
-    // ":has(> ...)" rules in app.css (flat-list styling, the wide-screen
-    // globe grid) key off that, so the tab row must not add a wrapper div.
+    // #filters / #uni-list / #sl-list stay DIRECT children of .card - app.css keys off that.
     const bodyHtml = tab === 'favorite'
-      ? '<p class="hint">' + esc(T('Save as many as you like, in order of preference.')) + '</p>' +
+      ? hint(T('Keep the agreements you like here, then apply to them in the platform.')) +
         '<p class="hint" id="fav-empty" hidden>' + esc(T('Nothing here yet. Open a university and tap "Favorite".')) + '</p>' +
         '<div id="sl-list"></div>'
       : '<div id="filters"></div><p class="hint" id="uni-count"></p><div id="uni-list"></div>';
-    const favN = ((Store.state.user && Store.state.user.shortlist) || []).length;
-    // on a wide screen "List" reads "All universities" and also stands for the map view
+    const favN = Store.shortlist().length;
     const cls = id => tab === id ? 'active' : (id === 'list' && tab === 'map' ? 'active-wide' : '');
     const tabBtn = (id, inner) => '<button class="' + cls(id) + '" data-maptab="' + id + '" role="tab" aria-selected="' + (tab === id) + '">' + inner + '</button>';
     const wrap = h('<div class="screen panel">' +
       '<div class="card uni-screen view-' + tab + '">' +
-      '<p class="section-label">' + esc(T('Universities')) + '</p>' +
+      label(T('Your faculty\'s agreements')) +
       '<div class="tab-row" role="tablist">' +
-      tabBtn('list', '<span class="tab-narrow">' + esc(T('List')) + '</span><span class="tab-wide">' + esc(T('All universities')) + '</span>') +
+      tabBtn('list', '<span class="tab-narrow">' + esc(T('List')) + '</span><span class="tab-wide">' + esc(T('All agreements')) + '</span>') +
       tabBtn('map', icon('map', 'sm-ico') + ' ' + esc(T('Map'))) +
       tabBtn('favorite', icon('bookmark', 'sm-ico') + ' ' + esc(T('Favorite')) + (favN ? ' <span class="tab-count">' + favN + '</span>' : '')) +
       '</div>' +
       bodyHtml +
       '</div></div>');
-    const card = wrap.querySelector('.card');
+    const c = wrap.querySelector('.card');
     wrap.querySelectorAll('[data-maptab]').forEach(b => {
       b.onclick = () => {
         const t = b.dataset.maptab;
-        Store.state.mapTab = t;
-        if (t !== 'favorite') Store.state.mapView = t;
+        st().mapTab = t;
+        if (t !== 'favorite') st().mapView = t;
         Store.saveLocal();
         render();
       };
     });
 
     if (tab === 'favorite') {
-      favoritesInto(card);
+      favoritesInto(c);
     } else {
       let globeBox = null;
       try {
-        // inserted before #uni-count, i.e. under the filters (the wide layout places it by grid-area)
-        globeBox = Stage.mapGlobe(card.querySelector('#uni-count'), id => { Store.state.activeUniId = id; go('uni'); });
+        globeBox = Stage.mapGlobe(c.querySelector('#uni-count'), id => { st().activeUniId = id; go('uni'); });
       } catch (err) { console.warn('[map globe]', err); }
 
       const fillList = () => {
-        const el = card.querySelector('#uni-list');
-        const { lang, country, region, quality } = Store.state.filters;
+        const el = c.querySelector('#uni-list');
+        const { lang, country } = st().filters;
         let unis = Store.sortedUnis();
-        if (lang) unis = unis.filter(u => (u.languages || []).includes(lang));
+        if (lang) unis = unis.filter(u => u.agreement && u.agreement.language === lang);
         if (country) unis = unis.filter(u => u.country === country);
-        if (region) unis = unis.filter(u => regionOf(u.country) === region);
-        if (quality) unis = unis.filter(u => tierOf(u) === quality);
         el.innerHTML = '';
-        if (!unis.length) { el.innerHTML = '<p class="hint">' + esc(T('No universities match the filters.')) + '</p>'; }
+        if (!unis.length) el.innerHTML = hint(T('No agreements match the filters.'));
         for (const u of unis) el.appendChild(uniCard(u));
-        card.querySelector('#uni-count').textContent = T('{n} universities, best match first', { n: unis.length });
+        c.querySelector('#uni-count').textContent = T('{n} agreements, best match first', { n: unis.length });
         Stage.syncMap(globeBox);
       };
-      buildFilters(card.querySelector('#filters'), fillList);
+      buildFilters(c.querySelector('#filters'), fillList);
       fillList();
     }
     root.appendChild(wrap);
   }
 
   async function viewUniversity(root) {
-    const u = await Store.getUniversityDetail(Store.state.activeUniId);
-    if (!u || !u.summary) { go('map', { replace: true }); return; }
+    const u = await Store.getUniversityDetail(st().activeUniId);
+    if (!u || !u.summary || !u.matches) { go('map', { replace: true }); return; }
     const s = u.summary;
+    const a = u.agreement || {};
     const pct = s.total ? s.matched / s.total : 0;
     const circ = 2 * Math.PI * 42;
+    const fav = Store.isFavorite(u.id);
     const wrap = h('<div class="screen panel">' +
       '<div class="card">' +
       '<div class="uni-head">' +
@@ -1326,16 +719,25 @@ const App = (() => {
       '</div>' +
       '<div style="min-width:0">' +
       '<h2 style="font-size:18px">' + flagImg(u.country_code, 'inline-ico') + ' ' + esc(u.name) + '</h2>' +
-      '<p class="hint" style="margin:4px 0 0">' + metaLine(u) + '</p>' +
+      '<p class="hint" style="margin:4px 0 0">' + esc(u.city) + ', ' + esc(T(u.country)) + '</p>' +
       siteLink(u, 'uni-link-lg') +
       '</div></div>' +
-      '<p class="section-label" style="margin-top:16px">' + esc(T('ECTS covered: {n} of 30', { n: s.ects_covered })) + '</p>' +
+      '<div class="agr-facts">' +
+      '<span><b>' + esc(T('Agreement')) + '</b>' + esc(a.code || '') + '</span>' +
+      '<span><b>' + esc(T('Field')) + '</b>' + esc(a.isced_name || '') + '</span>' +
+      '<span><b>' + esc(T('Language of instruction')) + '</b>' + esc(T(a.language || '')) + ' ' + esc(a.level || '') + '</span>' +
+      '<span><b>' + esc(T('Places')) + '</b>' + esc(placesText(a)) + '</span>' +
+      '</div>' +
+      fitNotice(a.language_fit) +
+      label(T('ECTS covered: {n} of 30', { n: s.ects_covered })) +
       '<div class="ects-bar"><div style="width:' + Math.min(100, s.ects_covered / 30 * 100) + '%"></div></div>' +
       '<div id="rows" style="margin-top:12px"></div>' +
       '<div class="two-btns">' +
-      '<button class="ghost" id="add-sl">' + icon('plus', 'inline-ico') + ' ' + esc(T('Favorite')) + '</button>' +
-      '<button class="primary" id="accepted">' + esc(T('I got accepted')) + '</button>' +
+      '<button class="ghost" id="add-sl">' + icon(fav ? 'check' : 'plus', 'inline-ico') + ' ' + esc(T(fav ? 'In favorites' : 'Favorite')) + '</button>' +
+      '<button class="ghost" id="la-draft">' + icon('file-text', 'inline-ico') + ' ' + esc(T('Learning Agreement draft (PDF)')) + '</button>' +
       '</div>' +
+      applyButton(u) +
+      hint(T('The application itself is made in the platform. PoliGo opens its form for this agreement.')) +
       '</div></div>');
     const rows = wrap.querySelector('#rows');
     const icons = { good: 'check', partial: 'arrow-right', none: 'x' };
@@ -1345,7 +747,7 @@ const App = (() => {
         '<div class="line1"><span>' + esc(T(m.home_name)) + '</span><span class="arrow">' + icon('arrow-right', 'sm-ico') + '</span>' +
         '<span>' + esc(m.partner_name ? T(m.partner_name) : T('No partner course')) + '</span></div>' +
         '<div class="line2"><span class="pill ' + m.label + '">' + icon(icons[m.label], 'sm-ico') + ' ' + esc(T(labels[m.label] || m.label)) + '</span>' +
-        '<span>' + (m.partner_ects ? m.partner_ects + ' ECTS' : '') + '</span></div>' +
+        '<span>' + (m.partner_ects ? m.partner_ects + ' ECTS' : '') + (m.partner_language ? ' · ' + esc(T(m.partner_language)) : '') + '</span></div>' +
         '<div class="explain" hidden>' + esc(T(m.explanation || '')) +
         (m.missing_topics && m.missing_topics.length ? '<br/>' + esc(T('Missing:')) + ' ' + esc(m.missing_topics.map(T).join(', ')) : '') + '</div>' +
         '</div>');
@@ -1355,174 +757,219 @@ const App = (() => {
       rows.appendChild(row);
     }
     wrap.querySelector('#add-sl').onclick = async () => {
-      await Store.addToShortlist(u.id);
-      toast(T('Added to favorites'));
+      try {
+        if (Store.isFavorite(u.id)) { await Store.removeFromShortlist(u.id); toast(T('Removed from favorites')); }
+        else { await Store.addToShortlist(u.id); toast(T('Added to favorites')); }
+        render();
+      } catch (e) { toast(errText(e)); }
     };
-    wrap.querySelector('#accepted').onclick = () => openAcceptedSheet(u.id);
+    wrap.querySelector('#la-draft').onclick = () => openLaSheet(u);
     root.appendChild(wrap);
   }
 
-  // Favorite: a sub-tab on the Map screen (not its own nav item any more).
-  // Fills #sl-list in place so it stays a direct child of .card, same as the
-  // old standalone screen - the "flat list" card styling keys off that.
   function favoritesInto(mapCard) {
-    const sl = (Store.state.user && Store.state.user.shortlist) || [];
+    const ids = Store.shortlist();
     const emptyEl = mapCard.querySelector('#fav-empty');
-    if (emptyEl) emptyEl.hidden = sl.length !== 0;
+    if (emptyEl) emptyEl.hidden = ids.length !== 0;
     const list = mapCard.querySelector('#sl-list');
     list.innerHTML = '';
-    sl.forEach((s, idx) => {
-      const u = Store.uniById(s.id) || s;
+    ids.forEach((id, idx) => {
+      const u = Store.uniById(id);
+      if (!u) return;
       const row = h('<div class="card uni-card">' +
         '<span class="badge"><span class="num">' + (idx + 1) + '</span></span>' +
-        '<span><span class="name">' + esc(u.name) + '</span><br/>' +
-        '<span class="meta">' + esc(u.city || '') + (u.summary ? ' - ' + u.summary.matched + '/' + u.summary.total + ' ' + esc(T('match')) : '') + '</span>' +
-        (u.website ? '<br/>' + siteLink(u) : '') + '</span>' +
-        '<span style="margin-left:auto;display:flex;gap:8px">' +
-        '<button class="ghost accepted-btn">' + esc(T('Accepted')) + '</button>' +
+        '<span style="min-width:0"><span class="name">' + esc(u.name) + '</span><br/>' +
+        '<span class="meta">' + esc(u.city) + ' - ' + u.summary.matched + '/' + u.summary.total + ' ' + esc(T('match')) + ' - ' + esc(placesText(u.agreement)) + '</span><br/>' +
+        fitPill(u.agreement.language_fit) + '</span>' +
+        '<span class="fav-actions">' +
+        applyButton(u, 'ghost') +
         '<button class="icon-btn" data-remove aria-label="' + esc(T('Remove')) + '">' + icon('trash-2') + '</button>' +
         '</span></div>');
-      row.querySelector('[data-remove]').onclick = async () => { await Store.removeFromShortlist(s.id); render(); };
-      row.querySelector('.accepted-btn').onclick = () => openAcceptedSheet(s.id);
+      row.querySelector('[data-remove]').onclick = async () => {
+        try { await Store.removeFromShortlist(id); render(); } catch (e) { toast(errText(e)); }
+      };
+      row.querySelector('.name').onclick = () => { st().activeUniId = id; go('uni'); };
       list.appendChild(row);
     });
   }
 
-  /* ------------------------------------------------------ the "I got accepted" step */
+  /* ------------------------------------------------ Learning Agreement draft */
 
-  const OVERLAP_WARN_DAYS = 14; // flag a gap shorter than this between two mobilities
-
-  // Warns when a new request overlaps the student's current active mobility,
-  // or leaves too little time between the two to realistically arrange.
-  function dateConflictMessage(newStart, newEnd) {
-    const mob = Store.state.mobility;
-    if (!mob || !mob.start_date || !mob.end_date || !newStart || !newEnd) return null;
-    const ns = parseYmd(newStart), ne = parseYmd(newEnd);
-    const os = parseYmd(mob.start_date), oe = parseYmd(mob.end_date);
-    if (ns <= oe && ne >= os) return T('This overlaps with the dates of your current mobility.');
-    const gapDays = ns > oe ? Math.round((ns - oe) / 86400000) : Math.round((os - ne) / 86400000);
-    if (gapDays < OVERLAP_WARN_DAYS) return T('Only {n} day(s) between this and your current mobility - tight to arrange.', { n: gapDays });
-    return null;
-  }
-
-  function openAcceptedSheet(preId) {
-    const sl = (Store.state.user && Store.state.user.shortlist) || [];
-    const u0 = preId || (sl[0] && sl[0].id) || ((Store.sortedUnis()[0] || {}).id);
-    const now = new Date();
-    const defStart = addDays(now, 47);
+  async function openLaSheet(u) {
+    let data;
+    try { data = await Store.getLa(u.id); } catch (e) { toast(errText(e)); return; }
+    const picked = new Set(data.rows.map(r => r.home_course_id));
+    const labels = { good: 'Good match', partial: 'Partial match' };
     const sheet = h('<div class="sheet" role="dialog" aria-modal="true">' +
       '<div class="sheet-grab"></div>' +
-      '<h2>' + esc(T('I got accepted')) + '</h2>' +
-      '<div class="form-field"><label>' + esc(T('University')) + '</label>' +
-      '<div class="select-wrap"><select id="a-uni">' + Store.state.universities.map(u => '<option value="' + u.id + '" ' + (u.id === u0 ? 'selected' : '') + '>' + esc(u.name) + '</option>').join('') + '</select>' + icon('chevron-down', 'sel-ico') + '</div></div>' +
-      dmyField('Start date', { id: 'a-start', value: ymd(defStart), from: now.getFullYear(), to: now.getFullYear() + 4 }) +
-      dmyField('Arrival date (optional)', { id: 'a-arrival', value: ymd(addDays(defStart, -3)), from: now.getFullYear(), to: now.getFullYear() + 4 }) +
-      dmyField('End date', { id: 'a-end', value: ymd(addDays(now, 197)), from: now.getFullYear(), to: now.getFullYear() + 5 }) +
-      '<div class="notice" id="acc-warn" hidden></div>' +
-      '<p class="hint">' + esc(T('An admin from the Erasmus office confirms it before your journey starts.')) + '</p>' +
-      '<button class="primary" id="acc-go">' + esc(T('Send for approval')) + '</button>' +
-      '<button class="link" id="acc-cancel">' + esc(T('Not now')) + '</button>' +
+      '<h2>' + esc(T('Learning Agreement draft')) + '</h2>' +
+      hint(T('Pick the courses for Table A. Each one is paired with the UPT course it replaces (Table B).'), 'margin-top:0') +
+      '<div id="la-opts">' + data.options.map(m =>
+        '<label class="task-card"><input type="checkbox" data-hc="' + esc(m.home_course_id) + '" ' + (picked.has(m.home_course_id) ? 'checked' : '') + ' />' +
+        '<span><span class="t-title">' + esc(m.partner_name) + ' (' + m.partner_ects + ' ECTS)</span>' +
+        '<span class="t-meta">' + esc(T('replaces {course}', { course: T(m.home_name) })) + ' · ' + esc(T(labels[m.label] || m.label)) + '</span></span></label>'
+      ).join('') + '</div>' +
+      '<p class="hint" id="la-total"></p>' +
+      '<div class="notice" id="la-warn" hidden></div>' +
+      '<button class="primary" id="la-go">' + icon('file-text', 'inline-ico') + ' ' + esc(T('Save and download the PDF')) + '</button>' +
+      '<button class="link" id="la-cancel">' + esc(T('Close')) + '</button>' +
       '</div>');
-    wireDmy(sheet);
-    const startInp = sheet.querySelector('#a-start');
-    const arrivalInp = sheet.querySelector('#a-arrival');
-    const endInp = sheet.querySelector('#a-end');
-    const warnEl = sheet.querySelector('#acc-warn');
-    const refreshWarn = () => {
-      const msg = dateConflictMessage(startInp.value, endInp.value);
-      warnEl.hidden = !msg;
-      if (msg) warnEl.innerHTML = icon('triangle-alert', 'sm-ico') + '<span>' + esc(msg) + '</span>';
+    const total = () => {
+      const ids = [...sheet.querySelectorAll('[data-hc]:checked')].map(x => x.dataset.hc);
+      const rows = data.options.filter(m => ids.indexOf(m.home_course_id) !== -1);
+      const a = rows.reduce((s, r) => s + (r.partner_ects || 0), 0);
+      const b = rows.reduce((s, r) => s + (r.home_ects || 0), 0);
+      sheet.querySelector('#la-total').textContent = T('Table A: {a} ECTS abroad · Table B: {b} ECTS recognised at UPT', { a, b });
+      const warn = sheet.querySelector('#la-warn');
+      warn.hidden = a >= 30;
+      warn.innerHTML = icon('triangle-alert', 'sm-ico') + '<span>' + esc(T('A semester abroad is usually 30 ECTS. Ask your coordinator how to cover the rest.')) + '</span>';
+      return ids;
     };
-    startInp.addEventListener('change', () => {
-      if (startInp.value) arrivalInp.setIso(ymd(addDays(parseYmd(startInp.value), -3)));
-      refreshWarn();
-    });
-    endInp.addEventListener('change', refreshWarn);
-    refreshWarn();
-    sheet.querySelector('#acc-go').onclick = async () => {
-      if (!startInp.value || !endInp.value) { toast(T('Pick the start and the end date.')); return; }
-      if (endInp.value <= startInp.value) { toast(T('The end date must be after the start date.')); return; }
+    sheet.querySelectorAll('[data-hc]').forEach(cb => { cb.onchange = total; });
+    total();
+    sheet.querySelector('#la-cancel').onclick = () => sheet.remove();
+    sheet.querySelector('#la-go').onclick = async () => {
+      const win = window.open('', '_blank');   // opened synchronously so popup blockers allow it
       try {
-        const out = await Store.accept({
-          university_id: sheet.querySelector('#a-uni').value,
-          start_date: startInp.value,
-          arrival_date: arrivalInp.value || null,
-          end_date: endInp.value,
-        });
+        const out = await Store.saveLa(u.id, total());
+        printLa(win, u, out.rows);
         sheet.remove();
-        Store.state.activeUniId = out.mobility.university_id;
-        go('home', { replace: true, force: true });
-        toast(T('Sent for approval. Your journey opens once the Erasmus office confirms it.'));
-      } catch (e) { toast(errText(e)); }
+      } catch (e) {
+        if (win) win.close();
+        toast(errText(e));
+      }
     };
-    sheet.querySelector('#acc-cancel').onclick = () => sheet.remove();
     document.body.appendChild(sheet);
   }
 
-  /* --------------------------------------------------------- journey screens */
-
-  function dueChip(due) {
-    if (!due) return '<span class="due soon">' + esc(T('No date')) + '</span>';
-    const t0 = new Date();
-    const days = Math.round((parseYmd(due) - new Date(t0.getFullYear(), t0.getMonth(), t0.getDate())) / 86400000);
-    if (days < 0) return '<span class="due overdue">' + esc(T('Overdue by {days}', { days: nDays(-days) })) + '</span>';
-    if (days === 0) return '<span class="due today">' + esc(T('Due today')) + '</span>';
-    if (days === 1) return '<span class="due soon">' + esc(T('Tomorrow')) + '</span>';
-    return '<span class="due soon">' + esc(T('In {days}', { days: nDays(days) })) + '</span>';
+  // A printable draft; the browser's "Save as PDF" turns it into the PDF file.
+  function printLa(win, u, rows) {
+    if (!win) { toast(T('Allow pop-ups for PoliGo to download the PDF.')); return; }
+    const me = st().me;
+    const s = me.student;
+    const r = (mobility() && mobility().university_id === u.id ? mobility().round : null) || me.round;
+    const a = u.agreement || {};
+    const sumA = rows.reduce((x, y) => x + (y.partner_ects || 0), 0);
+    const sumB = rows.reduce((x, y) => x + (y.home_ects || 0), 0);
+    const td = v => '<td>' + esc(v) + '</td>';
+    const doc = '<!doctype html><html lang="' + (isRo() ? 'ro' : 'en') + '"><head><meta charset="utf-8"/>' +
+      '<title>' + esc(T('Learning Agreement draft') + ' - ' + s.name + ' - ' + u.name) + '</title>' +
+      '<style>' +
+      'body{font:12px/1.45 Inter,Arial,sans-serif;color:#111;margin:28px}' +
+      'h1{font-size:18px;margin:0 0 2px}h2{font-size:13px;margin:22px 0 6px;text-transform:uppercase;letter-spacing:.04em}' +
+      '.draft{color:#b45309;font-weight:700;font-size:11px;letter-spacing:.08em}' +
+      'table{width:100%;border-collapse:collapse}td,th{border:1px solid #999;padding:5px 7px;text-align:left;vertical-align:top}' +
+      'th{background:#eee}.meta td{border:0;padding:2px 10px 2px 0}.num{text-align:right}' +
+      '.sign{display:flex;gap:16px;margin-top:34px}.sign div{flex:1;border-top:1px solid #333;padding-top:4px;font-size:11px}' +
+      '.foot{margin-top:26px;font-size:10px;color:#555}' +
+      '@page{margin:16mm}' +
+      '</style></head><body>' +
+      '<p class="draft">' + esc(T('DRAFT - NOT AN OFFICIAL DOCUMENT')) + '</p>' +
+      '<h1>' + esc(T('Learning Agreement for Studies - before the mobility')) + '</h1>' +
+      '<table class="meta">' +
+      '<tr><td><b>' + esc(T('Student')) + '</b></td>' + td(s.name) + '<td><b>' + esc(T('Sending institution')) + '</b></td>' + td('Universitatea Politehnica Timișoara - ' + s.faculty_name) + '</tr>' +
+      '<tr><td><b>' + esc(T('Programme')) + '</b></td>' + td(T(s.program) + ', ' + T('year {n}', { n: s.year })) + '<td><b>' + esc(T('Receiving institution')) + '</b></td>' + td(u.name + ', ' + u.city + ' (' + T(u.country) + ')') + '</tr>' +
+      '<tr><td><b>' + esc(T('Agreement')) + '</b></td>' + td(a.code || '') + '<td><b>' + esc(T('Field')) + '</b></td>' + td(a.isced_name || '') + '</tr>' +
+      '<tr><td><b>' + esc(T('Period')) + '</b></td>' + td(r ? fmtDate(r.mobility_start) + ' - ' + fmtDate(r.mobility_end) : '') + '<td><b>' + esc(T('Language of instruction')) + '</b></td>' + td(T(a.language || '') + ' ' + (a.level || '')) + '</tr>' +
+      '</table>' +
+      '<h2>' + esc(T('Table A - study programme at the receiving institution')) + '</h2>' +
+      '<table><tr><th>#</th><th>' + esc(T('Course title (as in the course catalogue)')) + '</th><th>' + esc(T('Language')) + '</th><th class="num">ECTS</th></tr>' +
+      rows.map((x, i) => '<tr>' + td(i + 1) + td(x.partner_name) + td(T(x.partner_language || '')) + '<td class="num">' + esc(x.partner_ects) + '</td></tr>').join('') +
+      '<tr><th colspan="3">' + esc(T('Total')) + '</th><th class="num">' + sumA + '</th></tr></table>' +
+      '<h2>' + esc(T('Table B - recognition at the sending institution')) + '</h2>' +
+      '<table><tr><th>#</th><th>' + esc(T('UPT course replaced')) + '</th><th>' + esc(T('Replaced by')) + '</th><th class="num">ECTS</th></tr>' +
+      rows.map((x, i) => '<tr>' + td(i + 1) + td(T(x.home_name)) + td(x.partner_name) + '<td class="num">' + esc(x.home_ects) + '</td></tr>').join('') +
+      '<tr><th colspan="3">' + esc(T('Total')) + '</th><th class="num">' + sumB + '</th></tr></table>' +
+      '<div class="sign"><div>' + esc(T('Student')) + '</div><div>' + esc(T('UPT faculty coordinator')) + '</div><div>' + esc(T('Host coordinator')) + '</div></div>' +
+      '<p class="foot">' + esc(T('Prepared with PoliGo from the course matches on {date}. Copy it into the official Learning Agreement and upload the signed version in the mobility platform.', { date: fmtDate(ymd(new Date())) })) + '</p>' +
+      '<script>window.onload=function(){setTimeout(function(){window.print()},250)}<\/script>' +
+      '</body></html>';
+    win.document.open();
+    win.document.write(doc);
+    win.document.close();
   }
 
-  const stageLabel = st => T(STAGE_LABELS[st] || st);
+  /* ----------------------------------------------------------- mobility guide */
 
-  function taskWarnings() {
-    const today = ymd(new Date());
-    const soonCutoff = ymd(addDays(new Date(), 3));
-    const open = (Store.state.tasks || []).filter(t => !t.done);
-    const overdue = open.filter(t => t.due_date && t.due_date < today).length;
-    const dueSoon = open.filter(t => t.due_date && t.due_date >= today && t.due_date <= soonCutoff).length;
-    return { total: open.length, overdue, dueSoon };
+  function viewGuideLocked(root) {
+    const me = st().me;
+    const apps = (me && me.applications) || [];
+    const wrap = h('<div class="screen panel">' +
+      card(label(T('Mobility guide')) +
+        '<h2>' + esc(T('The guide opens once you are Titular')) + '</h2>' +
+        hint(T('The selection committee decides in the platform. As soon as your application shows "Titular" or "Aprobat" there, the guide opens here with your real documents and deadlines.')) +
+        (apps.length ? hint(T('Status in the platform now: {status}', { status: apps.map(a => T(a.status)).join(', ') })) : '') +
+        '<button class="primary" id="gl-dest">' + icon('globe', 'inline-ico') + ' ' + esc(T('Choose a destination')) + '</button>') +
+      '</div>');
+    wrap.querySelector('#gl-dest').onclick = () => go('home', { replace: true });
+    root.appendChild(wrap);
   }
 
-  function hasOverdueTasks() {
-    const today = ymd(new Date());
-    return (Store.state.tasks || []).some(t => !t.done && t.due_date && t.due_date < today);
+  const stageLabel = s => T(STAGE_LABELS[s] || s);
+
+  // Platform documents and PoliGo steps in one list.
+  function planItems() {
+    const g = guide();
+    if (!g) return [];
+    const docs = (g.documents || []).map(d => ({
+      kind: 'doc', id: d.id, title: d.title, stage: DOC_STAGE[d.phase] || 'during', due: d.deadline,
+      done: docDone(d), doc: d,
+    }));
+    const tasks = (g.tasks || []).map(t => ({
+      kind: 'task', id: t.id, title: t.title, stage: t.stage, due: t.due_date, done: !!t.done, task: t,
+    }));
+    return docs.concat(tasks).sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999'));
+  }
+
+  const docPill = d => {
+    const [cls, ico, text] = DOC_STATUS[d.status] || DOC_STATUS.not_yet;
+    return '<span class="pill ' + cls + '">' + icon(ico, 'sm-ico') + ' ' + esc(T(text)) + '</span>';
+  };
+
+  const srcTag = text => '<span class="src-tag">' + esc(T(text)) + '</span>';
+
+  function itemHtml(i) {
+    if (i.kind === 'doc') {
+      return '<div class="task-card plat ' + (i.done ? 'done' : '') + '">' +
+        '<span class="plat-ico">' + icon('landmark', 'sm-ico') + '</span>' +
+        '<span style="flex:1;min-width:0"><span class="t-title">' + esc(T(i.title)) + '</span>' +
+        '<span class="t-meta">' + dueChip(i.due) + ' ' + docPill(i.doc) + ' ' + srcTag('Platform deadline') + '</span></span></div>';
+    }
+    const src = { poligo: 'Not tracked by the platform', user: 'Added by you', scan: 'From scan' }[i.task.source] || '';
+    return '<label class="task-card ' + (i.done ? 'done' : '') + '">' +
+      '<input type="checkbox" data-id="' + i.id + '" ' + (i.done ? 'checked' : '') + ' />' +
+      '<span><span class="t-title">' + esc(T(i.title)) + '</span>' +
+      '<span class="t-meta">' + dueChip(i.due) + ' ' + (src ? srcTag(src) : '') + '</span></span></label>';
+  }
+
+  function wireTaskBoxes(scope, after) {
+    scope.querySelectorAll('input[type=checkbox][data-id]').forEach(cb => {
+      cb.onchange = async () => {
+        cb.closest('.task-card').classList.toggle('done', cb.checked);
+        try { await Store.toggleTask(parseInt(cb.dataset.id, 10), cb.checked); } catch (e) { toast(errText(e)); }
+        if (after) after();
+      };
+    });
   }
 
   function viewToday(root) {
-    const mob = Store.state.mobility;
-    const wrap0 = h('<div class="screen panel"></div>');
-    root.appendChild(wrap0);
-    if (!mob) {
-      wrap0.innerHTML = '<div class="card"><p class="hint" style="margin:0">' + esc(T('Pick a university and tell us you were accepted to start your journey.')) + '</p></div>';
-      openAcceptedSheet();
-      return;
-    }
+    const g = guide();
+    const mob = g.mobility;
     const uni = Store.uniById(mob.university_id);
     const now = new Date();
     const start = parseYmd(mob.start_date), end = parseYmd(mob.end_date), arrival = parseYmd(mob.arrival_date || mob.start_date);
     const totalDays = Math.max(1, Math.round((end - start) / 86400000));
     let countNum, countText;
-    if (now < arrival) {
-      countNum = clockParts(arrival - now).d;     // same number as the countdown below
-      countText = T('days to departure');
-    } else if (now <= end) {
-      countNum = Math.max(1, Math.ceil((now - arrival) / 86400000));
-      countText = T('day of') + ' ' + totalDays;
-    } else {
-      countNum = '∞';
-      countText = T('Welcome back!');
-    }
-    const next = Store.state.tasks.filter(t => !t.done).slice(0, 3);
-    const pct = stage => {
-      const ts = Store.state.tasks.filter(t => t.stage === stage);
-      return ts.length ? Math.round(100 * ts.filter(t => t.done).length / ts.length) : 0;
-    };
+    if (now < arrival) { countNum = clockParts(arrival - now).d; countText = T('days to departure'); }
+    else if (now <= end) { countNum = Math.max(1, Math.ceil((now - arrival) / 86400000)); countText = T('day of') + ' ' + totalDays; }
+    else { countNum = '✓'; countText = T('Welcome back!'); }
+    const items = planItems();
+    const open = items.filter(i => !i.done);
+    const overdue = open.filter(i => i.due && daysUntil(i.due) < 0);
+    const next = open.slice(0, 4);
     const circ = 2 * Math.PI * 52;
     const frac = Math.min(1, Math.max(0, (now - arrival) / ((end - arrival) || 1)));
-    const warn = taskWarnings();
-    const warnHtml = warn.total ? '<div class="notice' + (warn.overdue ? ' bad' : '') + '">' + icon('triangle-alert', 'sm-ico') +
-      '<span>' + esc(warn.overdue ? T('You have {n} overdue task(s)', { n: warn.overdue }) : T('You have {n} uncompleted task(s)', { n: warn.total })) +
-      (warn.dueSoon ? ' - ' + esc(T('{n} due within 3 days', { n: warn.dueSoon })) : '') + '</span></div>' : '';
-    wrap0.innerHTML =
+    const wrap = h('<div class="screen panel">' +
       '<div class="card today-head">' +
       '<div class="ring">' +
       '<svg width="120" height="120"><circle cx="60" cy="60" r="52" fill="none" stroke="var(--surface-2)" stroke-width="6"/>' +
@@ -1530,593 +977,373 @@ const App = (() => {
       '<div class="inside"><span class="big-num">' + esc(countNum) + '</span><span class="unit">' + esc(countText) + '</span></div>' +
       '</div>' +
       '<div style="min-width:0">' +
-      '<p class="section-label">' + esc(uni ? uni.name : T('Your mobility')) + '</p>' +
+      label(uni ? uni.name : T('Your mobility')) +
       '<p class="hint" style="margin:4px 0 0">' + esc(fmtDate(mob.start_date)) + ' → ' + esc(fmtDate(mob.end_date)) + '<br/>' + esc(uni ? uni.city + ', ' + T(uni.country) : '') + '</p>' +
+      '<p style="margin:8px 0 0"><span class="pill good">' + icon('check', 'sm-ico') + ' ' + esc(T(mob.status)) + '</span></p>' +
       '</div></div>' +
-      '<div class="card">' + countdownHtml() + '</div>' +
-      warnHtml +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('Next up')) + '</p>' +
-      (next.map(t => '<div class="task-card"><span><span class="t-title">' + esc(T(t.title)) + '</span><span class="t-meta">' + dueChip(t.due_date) + '</span></span></div>').join('') || '<p class="hint" style="margin:0">' + esc(T('All clear.')) + '</p>') +
-      '</div>' +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('Stage progress')) + '</p>' +
-      STAGES.map(stg => '<p class="hint" style="margin:8px 0 4px">' + esc(stageLabel(stg)) + '</p><div class="stage-progress"><div style="width:' + pct(stg) + '%"></div></div>').join('') +
-      '</div>' +
-      '<button class="primary" id="scan-btn">' + icon('scan-line', 'inline-ico') + ' ' + esc(T('Scan a document')) + '</button>';
-    wrap0.querySelector('#scan-btn').onclick = () => go('scanJ');
-    startCountdown(wrap0);
-  }
-
-  /* ------------------------------------------------- plan = steps + calendar */
-
-  // One screen instead of two: the steps to do (what used to be Timeline) on top,
-  // the month calendar with the same steps and deadlines marked below it.
-  function viewPlan(root) {
-    const panel = h('<div class="screen panel"></div>');
-    if (!Store.state.mobility) {
-      panel.innerHTML = '<div class="card"><p class="hint" style="margin:0">' + esc(T('Your plan appears once your mobility is approved.')) + '</p></div>';
-      root.appendChild(panel);
-      return;
-    }
-    stepsInto(panel);
-    calendarInto(panel);
-    root.appendChild(panel);
-  }
-
-  /* ----------------------------------------------------------------- calendar */
-
-  function calendarInto(root) {
-    const st = Store.state;
-    if (!st.calView) {
-      const n = new Date();
-      st.calView = { y: n.getFullYear(), m: n.getMonth() };
-    }
-    const mob = st.mobility;
-    const awaySet = new Set();
-    if (mob && mob.start_date) {
-      const a = parseYmd(mob.arrival_date || mob.start_date);
-      for (let i = 0; i < 366 * 3; i++) {
-        const ds = ymd(addDays(a, i));
-        if (ds > mob.end_date) break;
-        awaySet.add(ds);
-      }
-    }
-    const dlSet = new Set();
-    for (const d of projectDeadlines()) if (d.date) dlSet.add(ymd(d.date));
-    const taskSet = new Set(st.tasks.filter(t => t.due_date).map(t => t.due_date));
-    const today = ymd(new Date());
-
-    const wrap = h('<div class="plan-part">' +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('Calendar')) + '</p>' +
-      '<div class="cal-head">' +
-      '<button class="ghost cal-nav" data-m="-1" aria-label="' + esc(T('Previous month')) + '">' + icon('arrow-left') + '</button>' +
-      '<span class="cal-title" id="cal-title"></span>' +
-      '<button class="ghost cal-nav" data-m="1" aria-label="' + esc(T('Next month')) + '">' + icon('arrow-right') + '</button>' +
-      '</div>' +
-      '<div class="cal-grid" id="cal-grid"></div>' +
-      '<p class="hint cal-legend">' +
-      '<span class="lg"><i class="sw dl"></i>' + esc(T('Deadline')) + '</span>' +
-      '<span class="lg"><i class="sw task"></i>' + esc(T('Step')) + '</span>' +
-      '<span class="lg"><i class="sw free"></i>' + esc(T('Free')) + '</span>' +
-      '<span class="lg"><i class="sw busy"></i>' + esc(T('Busy')) + '</span>' +
-      '<span class="lg"><i class="sw away"></i>' + esc(T('Away')) + '</span></p>' +
-      '<p class="hint">' + esc(T('Any day you have not marked away is free by default. Tap a free day to mark it busy if you cannot use it.')) + '</p>' +
-      '</div>' +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('Deadlines')) + '</p>' +
-      '<div id="dl-list"></div>' +
-      '</div>' +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('Sync your calendar')) + '</p>' +
-      '<p class="hint">' + esc(T('Export your mobility dates, steps and deadlines to Google Calendar, Outlook or Apple Calendar.')) + '</p>' +
-      '<div class="two-btns">' +
-      '<a class="ghost" id="gcal-link" target="_blank" rel="noopener">' + icon('calendar-days', 'inline-ico') + ' ' + esc(T('Add to Google Calendar')) + '</a>' +
-      '<a class="ghost" id="ics-link" download="poligo.ics">' + icon('link', 'inline-ico') + ' ' + esc(T('Download .ics (subscribe)')) + '</a>' +
-      '</div>' +
-      '</div></div>');
-
-    const titleEl = wrap.querySelector('#cal-title');
-    const gridEl = wrap.querySelector('#cal-grid');
-
-    const gcalA = wrap.querySelector('#gcal-link');
-    const icsA = wrap.querySelector('#ics-link');
-    if (mob && mob.start_date && mob.end_date) {
-      const startFmt = mob.start_date.replace(/-/g, '');
-      const endFmt = ymd(addDays(parseYmd(mob.end_date), 1)).replace(/-/g, '');
-      const uni = Store.uniById(mob.university_id);
-      const title = encodeURIComponent('Erasmus at ' + (uni ? uni.name : ''));
-      gcalA.href = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + title + '&dates=' + startFmt + '/' + endFmt;
-    } else {
-      gcalA.href = '#';
-      gcalA.onclick = e => { e.preventDefault(); toast(T('Accept a mobility first to export its dates')); };
-    }
-    icsA.href = '/api/calendar/' + Store.state.userId + '.ics';
-
-    function draw() {
-      const { y, m } = st.calView;
-      const daysInMonth = new Date(y, m + 1, 0).getDate();
-      let freeCount = 0;
-      for (let dnum = 1; dnum <= daysInMonth; dnum++) {
-        const ds = ymd(new Date(y, m, dnum));
-        if (!awaySet.has(ds) && !Store.isBusy(ds)) freeCount++;
-      }
-      titleEl.textContent = T(MONTHS[m]) + ' ' + y + ' - ' + T('{n} days free', { n: freeCount });
-      gridEl.innerHTML = '';
-      for (const w of WDAYS) gridEl.appendChild(h('<span class="cal-wd">' + esc(T(w)) + '</span>'));
-      const lead = (new Date(y, m, 1).getDay() + 6) % 7;
-      for (let i = 0; i < lead; i++) gridEl.appendChild(h('<span class="cal-cell empty"></span>'));
-      for (let dnum = 1; dnum <= daysInMonth; dnum++) {
-        const ds = ymd(new Date(y, m, dnum));
-        const away = awaySet.has(ds);
-        const busy = !away && Store.isBusy(ds);
-        const cls = ['cal-cell'];
-        if (ds === today) cls.push('today');
-        if (away) cls.push('away');
-        else cls.push(busy ? 'busy' : 'free');
-        if (dlSet.has(ds)) cls.push('has-dl');
-        if (taskSet.has(ds)) cls.push('has-task');
-        const cell = h('<button class="' + cls.join(' ') + '" aria-label="' + esc(fmtDate(ds)) + '"><span class="cal-date">' + dnum + '</span><span class="cal-mark"></span></button>');
-        cell.onclick = () => {
-          if (away) { toast(T('Already away for your mobility')); return; }
-          const nowBusy = Store.toggleBusy(ds);
-          cell.classList.toggle('busy', nowBusy);
-          cell.classList.toggle('free', !nowBusy);
-          toast(fmtDate(ds) + ' - ' + T(nowBusy ? 'Marked busy' : 'Free'));
-          titleEl.textContent = T(MONTHS[m]) + ' ' + y + ' - ' + T('{n} days free', { n: freeCount + (nowBusy ? -1 : 1) });
-        };
-        gridEl.appendChild(cell);
-      }
-    }
-
-    wrap.querySelector('.cal-head').addEventListener('click', e => {
-      const b = e.target.closest('[data-m]');
-      if (!b) return;
-      let { y, m } = st.calView;
-      m += parseInt(b.dataset.m, 10);
-      if (m < 0) { m = 11; y -= 1; }
-      if (m > 11) { m = 0; y += 1; }
-      st.calView = { y: y, m: m };
-      draw();
-    });
-
-    const dlList = wrap.querySelector('#dl-list');
-    const dls = projectDeadlines();
-    if (!dls.length) {
-      dlList.innerHTML = '<p class="hint" style="margin:0">' + esc(T('No deadlines for the selected project types.')) + '</p>';
-    } else {
-      for (const d of dls) {
-        dlList.appendChild(h('<div class="task-card">' +
-          '<span style="flex:1;min-width:0"><span class="t-title">' + esc(T(d.title)) + '</span>' +
-          '<span class="t-meta">' + esc(T(d.type)) + (d.note ? ' - ' + esc(T(d.note)) : '') + '</span></span>' +
-          '<span class="cal-date dl-when">' + (d.date ? esc(fmtDate(ymd(d.date))) : d.months_before + ' ' + esc(T('mo'))) + '</span>' +
-          '</div>'));
-      }
-    }
-
-    draw();
+      (overdue.length ? '<div class="notice bad">' + icon('triangle-alert', 'sm-ico') + '<span>' + esc(T('{n} item(s) are past their deadline', { n: overdue.length })) + '</span></div>' : '') +
+      '<div class="card" id="next">' + label(T('What to do now')) +
+      (next.map(itemHtml).join('') || hint(T('All clear.'), 'margin:0')) +
+      '<button class="link" id="to-plan">' + esc(T('See the whole plan')) + '</button></div>' +
+      '<button class="primary" id="scan-btn">' + icon('scan-line', 'inline-ico') + ' ' + esc(T('Scan a document')) + '</button>' +
+      '</div>');
+    wireTaskBoxes(wrap.querySelector('#next'));
+    wrap.querySelector('#to-plan').onclick = () => go('plan');
+    wrap.querySelector('#scan-btn').onclick = () => go('scanJ');
+    startCountdown(wrap);
     root.appendChild(wrap);
   }
 
-  /* --------------------------------------------------------- steps / scan / docs */
-
-  function stepsInto(root) {
-    const tasks = Store.state.tasks.slice().sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''));
-    if (!tlOpen) {
-      // open the stages that still have something to do (at most two)
-      tlOpen = new Set(STAGES.filter(s => tasks.some(t => t.stage === s && !t.done)).slice(0, 2));
-    }
-    const card = h('<div class="card" id="tl"></div>');
-
-    const taskCard = t => {
-      const src = { template: 'Template', scan: 'From scan', user: 'Added by you' }[t.source] || t.source;
-      return '<label class="task-card ' + (t.done ? 'done' : '') + '">' +
-        '<input type="checkbox" data-id="' + t.id + '" data-stage="' + esc(t.stage) + '" ' + (t.done ? 'checked' : '') + ' />' +
-        '<span><span class="t-title">' + esc(T(t.title)) + '</span>' +
-        '<span class="t-meta">' + dueChip(t.due_date) + ' <span>' + esc(T(src)) + '</span></span></span>' +
-        '</label>';
+  function viewPlan(root) {
+    const g = guide();
+    const items = planItems();
+    if (!tlOpen) tlOpen = new Set(STAGES.filter(s => items.some(i => i.stage === s && !i.done)).slice(0, 2));
+    const panel = h('<div class="screen panel">' +
+      '<div class="card" id="tl"></div>' +
+      card(label(T('Add your own task')) +
+        '<div class="form-field"><input id="new-task" placeholder="' + esc(T('e.g. Pick up keys from landlord')) + '" aria-label="' + esc(T('Add your own task')) + '" /></div>' +
+        '<button class="ghost" id="add-task">' + esc(T('Add task')) + '</button>') +
+      card(label(T('Calendar')) +
+        hint(T('Download the official deadlines and your steps as a calendar file (Google Calendar, Outlook, Apple Calendar).'), 'margin-top:0') +
+        '<a class="ghost" href="/api/calendar.ics" download="poligo.ics">' + icon('calendar-days', 'inline-ico') + ' ' + esc(T('Download .ics')) + '</a>' +
+        ext(g.platform_documents_url, T('Open my documents in the platform'))) +
+      '</div>');
+    const tl = panel.querySelector('#tl');
+    const draw = () => {
+      const list = planItems();
+      tl.innerHTML = label(T('Your plan')) +
+        hint(T('Official documents and deadlines come from the platform; the other steps are the ones it does not track.'), 'margin-top:0') +
+        STAGES.map(s => {
+          const part = list.filter(i => i.stage === s);
+          if (!part.length) return '';
+          const open = tlOpen.has(s);
+          return '<section class="stage">' +
+            '<button class="stage-h' + (open ? ' open' : '') + '" data-toggle="' + s + '" aria-expanded="' + open + '">' +
+            '<span class="sh-l">' + icon('chevron-down', 'sm-ico') + esc(stageLabel(s)) + '</span>' +
+            '<span class="sh-n">' + part.filter(i => i.done).length + ' / ' + part.length + '</span></button>' +
+            (open ? part.map(itemHtml).join('') : '') + '</section>';
+        }).join('');
+      tl.querySelectorAll('[data-toggle]').forEach(b => {
+        b.onclick = () => { const s = b.dataset.toggle; tlOpen.has(s) ? tlOpen.delete(s) : tlOpen.add(s); draw(); };
+      });
+      wireTaskBoxes(tl, draw);
     };
-
-    function draw() {
-      card.innerHTML = '<p class="section-label">' + esc(T('Your steps')) + '</p>' +
-        STAGES.map(st => {
-          const list = tasks.filter(t => t.stage === st);
-          if (!list.length) return '';
-          const open = tlOpen.has(st);
-          return '<section class="stage" data-stage="' + st + '">' +
-            '<button class="stage-h' + (open ? ' open' : '') + '" data-toggle="' + st + '" aria-expanded="' + open + '">' +
-            '<span class="sh-l">' + icon('chevron-down', 'sm-ico') + esc(stageLabel(st)) + '</span>' +
-            '<span class="sh-n" data-count>' + list.filter(t => t.done).length + ' / ' + list.length + '</span></button>' +
-            (open ? list.map(taskCard).join('') : '') + '</section>';
-        }).join('') +
-        '<div class="form-field" style="margin-top:16px"><label for="new-task">' + esc(T('Add your own task')) + '</label>' +
-        '<input id="new-task" placeholder="' + esc(T('e.g. Pick up keys from landlord')) + '" /></div>' +
-        '<button class="ghost" id="add-task">' + esc(T('Add task')) + '</button>';
-      card.querySelectorAll('[data-toggle]').forEach(b => {
-        b.onclick = () => {
-          const s = b.dataset.toggle;
-          tlOpen.has(s) ? tlOpen.delete(s) : tlOpen.add(s);
-          draw();
-        };
-      });
-      card.querySelectorAll('input[type=checkbox]').forEach(cb => {
-        cb.onchange = () => {
-          const id = parseInt(cb.dataset.id, 10);
-          Store.toggleTask(id, cb.checked);
-          const t = tasks.find(x => x.id === id);
-          if (t) t.done = cb.checked ? 1 : 0;
-          cb.closest('.task-card').classList.toggle('done', cb.checked);
-          const sec = cb.closest('.stage');
-          const list = tasks.filter(x => x.stage === cb.dataset.stage);
-          sec.querySelector('[data-count]').textContent = list.filter(x => x.done).length + ' / ' + list.length;
-        };
-      });
-      card.querySelector('#add-task').onclick = async () => {
-        const inp = card.querySelector('#new-task');
-        if (!inp.value.trim()) return;
-        await Store.addTask(Store.state.mobility ? Store.state.mobility.id : null, inp.value.trim(), 'during', null);
-        tlOpen.add('during');
-        render();
-      };
-    }
     draw();
-    root.appendChild(card);
+    panel.querySelector('#add-task').onclick = async () => {
+      const inp = panel.querySelector('#new-task');
+      if (!inp.value.trim()) return;
+      try {
+        await Store.addTask(inp.value.trim(), 'during', null);
+        tlOpen.add('during');
+        inp.value = '';
+        draw();
+      } catch (e) { toast(errText(e)); }
+    };
+    root.appendChild(panel);
   }
 
-  // result_json is either the explanation itself or (older rows) the whole demo document
+  async function viewDocs(root) {
+    const g = guide();
+    const scans = await Store.getScans();
+    const uni = Store.uniById(g.mobility.university_id);
+    const phases = [['before', 'Before departure'], ['arrival', 'On arrival'], ['after', 'After return']];
+    const docCard = d => '<details class="doc-explain">' +
+      '<summary><span class="t-title">' + esc(T(d.title)) + '</span>' +
+      '<span class="t-meta">' + dueChip(d.deadline) + ' ' + docPill(d) + '</span></summary>' +
+      '<dl>' +
+      '<dt>' + esc(T('What it is')) + '</dt><dd>' + esc(T(d.what)) + '</dd>' +
+      '<dt>' + esc(T('Who signs')) + '</dt><dd>' + esc(T(d.who)) + '</dd>' +
+      '<dt>' + esc(T('Where')) + '</dt><dd>' + esc(T(d.where)) + '</dd>' +
+      '</dl>' +
+      (d.id === 'la-before' && uni ? '<button class="ghost" data-la>' + icon('file-text', 'inline-ico') + ' ' + esc(T('Make the draft from your matches')) + '</button>' : '') +
+      (d.id === 'tor' ? '<button class="ghost" data-rec>' + icon('shield-check', 'inline-ico') + ' ' + esc(T('Check it against your Learning Agreement')) + '</button>' : '') +
+      '</details>';
+    const wrap = h('<div class="screen panel">' +
+      card(label(T('Platform documents, in plain words')) +
+        hint(T('What the platform asks for, why, who signs it and by when. The status is read from the platform.'), 'margin-top:0') +
+        phases.map(([ph, text]) => {
+          const ds = (g.documents || []).filter(d => d.phase === ph);
+          return ds.length ? '<p class="section-label" style="margin-top:14px">' + esc(T(text)) + '</p>' + ds.map(docCard).join('') : '';
+        }).join('') +
+        ext(g.platform_documents_url, T('Upload documents in the platform'))) +
+      card(label(T('Papers you scanned abroad')) +
+        (scans.length
+          ? scans.map(s => '<div class="task-card"><span><span class="t-title">' + esc(s.document_type) + '</span><span class="t-meta">' + esc(s.summary || '') + '</span></span></div>').join('')
+          : hint(T('Got a paper in another language? Scan it and get plain answers.'), 'margin-top:0')) +
+        '<button class="ghost" id="go-scan">' + icon('scan-line', 'inline-ico') + ' ' + esc(T('Scan a document')) + '</button>') +
+      '</div>');
+    const la = wrap.querySelector('[data-la]');
+    if (la) la.onclick = async () => openLaSheet(await Store.getUniversityDetail(uni.id) || uni);
+    const rec = wrap.querySelector('[data-rec]');
+    if (rec) rec.onclick = () => go('recognition');
+    wrap.querySelector('#go-scan').onclick = () => go('scanJ');
+    root.appendChild(wrap);
+  }
+
+  /* ------------------------------------------------------------------ scanner */
+
   function parseScan(doc) {
     let r = typeof doc.result_json === 'string' ? JSON.parse(doc.result_json) : doc.result_json;
     if (r && r.result && !r.what) r = r.result;
     r = r || {};
+    const kw = (r.keywords || []).map(k => Array.isArray(k) ? { term: k[0], meaning: k[1] } : k);
     return {
       what: r.what || '', steps: r.steps || [], deadlines: r.deadlines || [], bring: r.bring || [],
-      watch_out: r.watch_out || '', keywords: r.keywords || [],
+      watch_out: r.watch_out || '', keywords: kw, sample: !!(r.sample || doc.sample),
     };
   }
 
-  async function viewScan(root) {
+  function viewScan(root) {
+    const sampleMode = st().platform && st().platform.scanner === 'sample';
     const wrap = h('<div class="screen panel">' +
       '<div class="card">' +
-      '<p class="section-label">' + esc(T('Scan a document')) + '</p>' +
-      '<p class="hint">' + esc(T('Photograph or upload a document you received in your destination city: a rental contract, a registration form, a bill.')) + '</p>' +
-      '<div class="form-field"><input id="scan-file" type="file" accept="image/*" capture="environment" aria-label="' + esc(T('Choose a photo')) + '" /></div>' +
+      label(T('Scan a document')) +
+      hint(T('Photograph or upload a paper you received abroad: a rental contract, a registration form, a bill. You get what it is, what to do and by when.')) +
+      '<div class="form-field"><input id="scan-file" type="file" accept="image/*,application/pdf" capture="environment" aria-label="' + esc(T('Choose a photo')) + '" /></div>' +
       '<button class="primary" id="do-scan">' + icon('scan-line', 'inline-ico') + ' ' + esc(T('Scan document')) + '</button>' +
-      '<p class="disclaimer">' + esc(T('AI explanation, not legal advice. Confirm with the office. In this prototype the result is a sample document.')) + '</p>' +
+      '<p class="disclaimer">' + esc(T('AI explanation, not legal advice. Check anything important with the office that issued the paper. The photo is not stored; only the explanation is.')) + '</p>' +
+      (sampleMode ? '<p class="disclaimer">' + esc(T('The scanner has no API key on this server, so it answers with a sample document.')) + '</p>' : '') +
       '</div>' +
       '<div class="scan-cards" id="scan-result"></div>' +
       '</div>');
     wrap.querySelector('#do-scan').onclick = async () => {
       const res = wrap.querySelector('#scan-result');
-      res.innerHTML = '<div class="card"><p class="hint" style="margin:0">' + esc(T('Reading your document...')) + '</p></div>';
+      const file = wrap.querySelector('#scan-file').files[0];
+      if (!file) { toast(T('Choose a photo or PDF first')); return; }
+      res.innerHTML = card(hint(T('Reading your document...'), 'margin:0'));
       try {
-        await new Promise(r => setTimeout(r, 1500));
-        const doc = await Store.scan();
-        if (!doc) { res.innerHTML = '<div class="card"><p class="hint" style="margin:0">' + esc(T('Accept an offer first to use the scanner.')) + '</p></div>'; return; }
+        const doc = await Store.scan(file);
         const r = parseScan(doc);
         res.innerHTML = scanResultHtml(r);
         wireDeadlines(res, r);
       } catch (e) {
-        res.innerHTML = '<div class="card"><p class="section-label">' + esc(T('Error')) + '</p><p style="margin:4px 0 0">' + esc(T('The scanner could not read the document.')) + ' ' + esc(errText(e)) + '</p></div>';
+        res.innerHTML = card(label(T('Error')) + '<p style="margin:4px 0 0">' + esc(T('The scanner could not read the document.')) + ' ' + esc(errText(e)) + '</p>');
       }
     };
     root.appendChild(wrap);
 
     function scanResultHtml(r) {
-      return '<div class="card"><p class="section-label">' + esc(T('What this is')) + '</p><p style="margin:4px 0 0">' + esc(T(r.what)) + '</p></div>' +
-        (r.steps.length ? '<div class="card"><p class="section-label">' + esc(T('What you need to do')) + '</p><ol>' + r.steps.map(s => '<li>' + esc(T(s)) + '</li>').join('') + '</ol></div>' : '') +
-        (r.deadlines.length ? '<div class="card"><p class="section-label">' + esc(T('Deadlines')) + '</p>' + r.deadlines.map((dl, i) =>
-          '<div class="task-card"><span class="t-title">' + esc(T(dl.text)) + '</span>' +
-          '<button class="ghost" data-dl="' + i + '">' + esc(T('Add')) + '</button></div>').join('') + '</div>' : '') +
-        (r.bring.length ? '<div class="card"><p class="section-label">' + esc(T('Bring with you')) + '</p><ul>' + r.bring.map(b => '<li>' + esc(T(b)) + '</li>').join('') + '</ul></div>' : '') +
-        (r.watch_out ? '<div class="card"><p class="section-label">' + esc(T('Watch out')) + '</p><p style="margin:4px 0 0;display:flex;gap:6px;align-items:flex-start">' + icon('triangle-alert', 'sm-ico warn') + '<span>' + esc(T(r.watch_out)) + '</span></p></div>' : '') +
-        (r.keywords.length ? '<div class="card"><p class="section-label">' + esc(T('Key words')) + '</p><p style="margin:4px 0 0">' + r.keywords.map(k => '<span class="pill kw">' + esc(k[0]) + ' → ' + esc(T(k[1])) + '</span>').join(' ') + '</p></div>' : '');
+      return (r.sample ? '<div class="notice">' + icon('info', 'sm-ico') + '<span>' + esc(T('Sample result - no API key is configured on this server.')) + '</span></div>' : '') +
+        card(label(T('What this is')) + '<p style="margin:4px 0 0">' + esc(r.sample ? T(r.what) : r.what) + '</p>') +
+        (r.steps.length ? card(label(T('What you need to do')) + '<ol>' + r.steps.map(s => '<li>' + esc(r.sample ? T(s) : s) + '</li>').join('') + '</ol>') : '') +
+        (r.deadlines.length ? card(label(T('Deadlines')) + r.deadlines.map((dl, i) =>
+          '<div class="task-card"><span class="t-title">' + esc(r.sample ? T(dl.text) : dl.text) + (dl.date ? ' (' + esc(fmtDate(dl.date)) + ')' : '') + '</span>' +
+          '<button class="ghost" data-dl="' + i + '">' + esc(T('Add to plan')) + '</button></div>').join('')) : '') +
+        (r.bring.length ? card(label(T('Bring with you')) + '<ul>' + r.bring.map(b => '<li>' + esc(r.sample ? T(b) : b) + '</li>').join('') + '</ul>') : '') +
+        (r.watch_out ? card(label(T('Watch out')) + '<p style="margin:4px 0 0;display:flex;gap:6px;align-items:flex-start">' + icon('triangle-alert', 'sm-ico warn') + '<span>' + esc(r.sample ? T(r.watch_out) : r.watch_out) + '</span></p>') : '') +
+        (r.keywords.length ? card(label(T('Key words')) + '<p style="margin:4px 0 0">' + r.keywords.map(k => '<span class="pill kw">' + esc(k.term) + ' → ' + esc(r.sample ? T(k.meaning) : k.meaning) + '</span>').join(' ') + '</p>') : '');
     }
 
     function wireDeadlines(res, r) {
       res.querySelectorAll('[data-dl]').forEach(b => {
         b.onclick = async () => {
           const dl = r.deadlines[parseInt(b.dataset.dl, 10)];
-          const due = ymd(addDays(new Date(), dl.offset_days || 7));
-          await Store.addTask(Store.state.mobility ? Store.state.mobility.id : null, dl.title || dl.text, 'during', due);
-          b.textContent = T('Added');
-          b.disabled = true;
-          toast(T('Added to your plan'));
+          const due = dl.date && /^\d{4}-\d{2}-\d{2}$/.test(dl.date) ? dl.date : ymd(addDays(new Date(), dl.offset_days || 7));
+          try {
+            await Store.addTask(r.sample ? T(dl.title || dl.text) : (dl.title || dl.text), 'during', due, 'scan');
+            b.textContent = T('Added');
+            b.disabled = true;
+            toast(T('Added to your plan'));
+          } catch (e) { toast(errText(e)); }
         };
       });
     }
   }
 
-  // One Documents screen: the Erasmus papers checklist, your own ID documents
-  // (edited in place, with one "add" form) and what you scanned.
-  async function viewDocs(root) {
-    const staticDocs = [
-      ['Learning Agreement - before mobility', 'signed'],
-      ['Grant contract', 'signed'],
-      ['EHIC card', 'active'],
-      ['Certificate of arrival', 'pending'],
-      ['Certificate of attendance', 'pending'],
-      ['Transcript of Records (partner)', 'at the end'],
-    ];
-    const [scans, docs0] = await Promise.all([Store.getScans(), Store.safeUserDocs()]);
-    let docs = docs0;
-    const wrap = h('<div class="screen panel">' +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('Erasmus papers')) + '</p>' +
-      '<p class="hint" style="margin-top:0">' + esc(T('What the Erasmus office expects from you, and where each paper stands.')) + '</p>' +
-      staticDocs.map(d => {
-        const color = d[1] === 'signed' || d[1] === 'active' ? 'good' : 'none';
-        const ico = color === 'good' ? 'check' : 'clock';
-        return '<div class="task-card"><span><span class="t-title">' + esc(T(d[0])) + '</span>' +
-          '<span class="t-meta"><span class="pill ' + color + '">' + icon(ico, 'sm-ico') + ' ' + esc(T(d[1])) + '</span></span></span></div>';
-      }).join('') +
-      '</div>' +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('ID and personal documents')) + '</p>' +
-      '<p class="hint" style="margin-top:0">' + esc(T('ID, passport, student ID, EHIC: offices abroad ask for them constantly. Fill them in once, here. A photo, if you add one, stays on this device.')) + '</p>' +
-      '<div id="doc-list"></div>' +
-      '<details class="doc-add"' + (docs.length ? '' : ' open') + '><summary>' + icon('plus', 'sm-ico') + ' ' + esc(T('Add a document')) + '</summary>' +
-      '<div class="form-field"><label>' + esc(T('Document type')) + '</label>' + typeSelect() + '</div>' +
-      '<div class="form-field"><label>' + esc(T('Number')) + '</label><input id="man-number" placeholder="' + esc(T('e.g. RX123456')) + '" /></div>' +
-      dmyField('Issued on', { id: 'man-issued', from: yearNow - 25, to: yearNow }) +
-      dmyField('Expires on', { id: 'man-expires', from: yearNow - 1, to: yearNow + 20 }) +
-      '<div class="form-field"><label>' + esc(T('Notes')) + '</label><input id="man-notes" placeholder="' + esc(T('Anything to remember')) + '" /></div>' +
-      '<div class="form-field"><label>' + esc(T('Photo (optional)')) + '</label>' +
-      '<button class="ghost" id="pick-doc" type="button">' + icon('upload', 'inline-ico') + ' <span id="pick-name">' + esc(T('Attach a photo')) + '</span></button>' +
-      '<input id="doc-file" type="file" accept="image/*,application/pdf" hidden /></div>' +
-      '<button class="primary" id="man-save">' + esc(T('Save document')) + '</button>' +
-      '</details>' +
-      '</div>' +
-      '<div class="card">' +
-      '<p class="section-label">' + esc(T('Scanned documents')) + '</p>' +
-      (scans.length
-        ? scans.map(s => '<div class="task-card"><span><span class="t-title">' + esc(T(s.document_type)) + '</span><span class="t-meta">' + esc(T(s.summary || '')) + '</span></span></div>').join('')
-        : '<p class="hint" style="margin-top:0">' + esc(T('Got a paper in another language? Scan it and get plain answers.')) + '</p>') +
-      '<button class="ghost" id="go-scan">' + icon('scan-line', 'inline-ico') + ' ' + esc(T('Scan a document')) + '</button>' +
-      '</div>' +
-      '<button class="link" id="back-explore">' + esc(T('Back to explore (archives this journey)')) + '</button>' +
-      '</div>');
-    wireDmy(wrap);
-    const sel = wrap.querySelector('#doc-type');
-    const fileInput = wrap.querySelector('#doc-file');
-    const listEl = wrap.querySelector('#doc-list');
-    let pickedFile = null;
+  /* -------------------------------------- return check: LA vs. Transcript */
 
-    function drawList() {
-      listEl.innerHTML = '';
-      if (!docs.length) {
-        listEl.innerHTML = '<p class="hint" style="margin:0 0 4px">' + esc(T('Nothing added yet.')) + '</p>';
-        return;
-      }
-      for (const d of docs) listEl.appendChild(docRow(d, reload));
-    }
+  const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 
-    async function reload() {
-      docs = await Store.safeUserDocs();
-      drawList();
-    }
-
-    wrap.querySelector('#pick-doc').onclick = () => fileInput.click();
-    fileInput.onchange = () => {
-      pickedFile = (fileInput.files && fileInput.files[0]) || null;
-      wrap.querySelector('#pick-name').textContent = pickedFile ? pickedFile.name : T('Attach a photo');
-    };
-
-    wrap.querySelector('#man-save').onclick = async () => {
-      const type = sel.value;
-      try {
-        if (pickedFile) await Store.saveDocBlob(type, pickedFile);
-        const rec = await Store.addUserDoc({
-          doc_type: type,
-          file_name: pickedFile ? pickedFile.name : '',
-          size: pickedFile ? pickedFile.size : 0,
-          doc_number: wrap.querySelector('#man-number').value || null,
-          issued_on: wrap.querySelector('#man-issued').value || null,
-          expires_on: wrap.querySelector('#man-expires').value || null,
-          notes: wrap.querySelector('#man-notes').value || null,
-        });
-        docs = docs.filter(d => d.doc_type !== rec.doc_type);
-        docs.push(rec);
-        drawList();
-        wrap.querySelector('#man-number').value = '';
-        wrap.querySelector('#man-issued').setIso('');
-        wrap.querySelector('#man-expires').setIso('');
-        wrap.querySelector('#man-notes').value = '';
-        pickedFile = null;
-        fileInput.value = '';
-        wrap.querySelector('#pick-name').textContent = T('Attach a photo');
-        wrap.querySelector('.doc-add').open = false;
-        toast(T('{doc} saved', { doc: T(type) }));
-      } catch (e) { toast(T('Could not save it. Is the server online?')); }
-    };
-
-    wrap.querySelector('#go-scan').onclick = () => go('scanJ');
-    wrap.querySelector('#back-explore').onclick = async () => {
-      await Store.saveProfile({}, 'explore');
-      Store.state.mobility = null;
-      Store.saveLocal();
-      go('home', { replace: true, force: true });
-    };
-    drawList();
-    root.appendChild(wrap);
+  function findOnTranscript(name, transcript) {
+    const n = norm(name);
+    if (!n) return null;
+    return transcript.find(t => norm(t.name) === n) ||
+      transcript.find(t => { const m = norm(t.name); return m && (m.indexOf(n) !== -1 || n.indexOf(m) !== -1); }) || null;
   }
 
-  /* ----------------------------------------------------- admin (staff tool, English) */
+  // ok: passed with the planned credits; short: passed with fewer credits;
+  // failed: on the transcript but not passed; missing: not on the transcript.
+  function compare(la, transcript) {
+    return la.map(r => {
+      const t = findOnTranscript(r.partner_name, transcript);
+      let status = 'missing';
+      if (t && !t.passed) status = 'failed';
+      else if (t && Number(t.ects) < Number(r.partner_ects)) status = 'short';
+      else if (t) status = 'ok';
+      return Object.assign({}, r, { tor: t, status });
+    });
+  }
 
-  function viewAdmin(root) {
-    let token = Store.getAdminToken();
-    let tab = 'approvals';
-    let logLevel = '';
-    let logLimit = '200';
-    const wrap = h('<div class="screen panel">' +
-      '<div class="card">' +
-      '<p class="section-label">Admin</p>' +
-      '<div class="form-field" id="ad-token-row"><label>Admin token</label>' +
-      '<input id="ad-token" type="password" placeholder="content of data/admin_token.txt inside the container" /></div>' +
-      '<div class="scan-cards">' +
-      '<button class="ghost" data-tab="approvals">Approvals</button>' +
-      '<button class="ghost" data-tab="summary">Summary</button>' +
-      '<button class="ghost" data-tab="sources">Sources</button>' +
-      '<button class="ghost" data-tab="logs">Logs</button>' +
-      '<button class="ghost" data-tab="messages">Messages</button>' +
-      '</div>' +
-      '<div id="ad-body"></div>' +
-      '<button class="link" id="ad-back">Back</button>' +
-      '</div></div>');
-    const body = wrap.querySelector('#ad-body');
-    const tokenRow = wrap.querySelector('#ad-token-row');
-    const tokenInput = wrap.querySelector('#ad-token');
-    tokenInput.value = token;
+  async function viewRecognition(root) {
+    const wrap = h('<div class="screen panel"><div class="card">' + hint(T('Loading...'), 'margin:0') + '</div></div>');
+    root.appendChild(wrap);
+    let data;
+    try { data = await Store.getRecognition(); } catch (e) { wrap.innerHTML = card(esc(errText(e))); return; }
+    let rows = (data.transcript || []).map(x => Object.assign({}, x));
+    const STATUS = {
+      ok: ['good', 'check', 'Recognised'],
+      short: ['partial', 'triangle-alert', 'Fewer credits than planned'],
+      failed: ['none', 'x', 'Not passed'],
+      missing: ['none', 'x', 'Not on the transcript'],
+    };
 
-    const getTok = () => tokenInput.value.replace(/[^\x20-\x7E]/g, '').trim();
+    wrap.innerHTML = '';
+    const result = h('<div class="card"></div>');
+    const editor = h('<div class="card"></div>');
+    wrap.appendChild(result);
+    wrap.appendChild(editor);
 
-    async function load() {
-      const tok = getTok();
-      if (!tok) { body.innerHTML = '<p class="hint">Enter the admin token - run: docker compose exec poligo cat /app/data/admin_token.txt</p>'; return; }
-      Store.setAdminToken(tok);
-      body.innerHTML = '<p class="hint">Loading...</p>';
-      try {
-        if (tab === 'approvals') {
-          const out = await Store.adminApi('/api/admin/approvals', {}, tok);
-          const list = out.pending || [];
-          body.innerHTML = '<p class="section-label" style="margin-top:10px">Waiting for approval (' + list.length + ')</p>' +
-            (list.map(m =>
-              '<div class="doc-row" data-mid="' + esc(m.id) + '"><span style="flex:1;min-width:0">' +
-              '<span class="doc-name">' + esc(m.email || String(m.user_id).slice(0, 8)) + '</span><br/>' +
-              '<span class="doc-meta">' + esc(m.university_name || m.university_id) + (m.city ? ', ' + esc(m.city) : '') +
-              ' - ' + esc(fmtDate(m.start_date)) + ' to ' + esc(fmtDate(m.end_date)) + ' - sent ' + esc(m.created_at) + '</span></span>' +
-              '<button class="ghost" data-approve="1">Approve</button>' +
-              '<button class="ghost" data-approve="0">Reject</button></div>'
-            ).join('') || '<p class="meta">Nothing to approve.</p>');
-          body.querySelectorAll('[data-approve]').forEach(b => {
-            b.onclick = async () => {
-              const mid = b.closest('[data-mid]').dataset.mid;
-              const approve = b.dataset.approve === '1';
-              try {
-                await Store.adminApi('/api/admin/approvals/' + encodeURIComponent(mid), {
-                  method: 'POST', body: JSON.stringify({ approve }),
-                }, getTok());
-                toast(approve ? 'Approved' : 'Rejected');
-                load();
-              } catch (e) { body.insertAdjacentHTML('afterbegin', '<p class="meta log-error">' + esc((e.code || 'ERR') + ': ' + e.message) + '</p>'); }
-            };
-          });
-        } else if (tab === 'summary') {
-          const out = await Store.adminApi('/api/admin/summary', {}, tok);
-          const c = out.counts || {};
-          body.innerHTML =
-            '<p class="meta">Uptime: ' + esc(out.uptime) + '</p>' +
-            '<p class="meta">Users: ' + c.users + ' / Sessions: ' + c.sessions + ' / Docs: ' + c.user_docs + ' / Mobilities: ' + c.mobilities + ' / Pending approval: ' + c.pending + '</p>' +
-            '<p class="meta">Errors 24h: ' + c.errors_24h + ' / Warnings 24h: ' + c.warn_24h + '</p>' +
-            '<p class="meta">Last Erasmus scan: ' + (out.last_scan ? esc(out.last_scan.run_at) + ' - ' + out.last_scan.count + ' opportunities' : 'none') + '</p>' +
-            (out.last_scan && out.last_scan.opportunities ? out.last_scan.opportunities.slice(0, 8).map(o =>
-              '<div class="doc-row"><span style="flex:1;min-width:0"><span class="doc-name">' + esc(o.title) +
-              (o.is_new ? ' <span class="badge due">New</span>' : '') + '</span><br/>' +
-              '<span class="doc-meta">ECTS match ' + Math.round(o.score * 100) + '% (' + o.ects_matched + '/' + o.courses + ' courses)</span></span></div>').join('') : '') +
-            '<p class="section-label" style="margin-top:10px">Recent sign-ins</p>' +
-            ((out.recent_signins || []).map(r => '<p class="meta">' + esc(r.ts) + ' - ' + esc(String(r.user_id).slice(0, 8)) + ' - ' + esc(r.event) + '</p>').join('') || '<p class="meta">none</p>') +
-            '<p class="section-label" style="margin-top:10px">Maintenance</p>' +
-            '<p class="hint" style="margin:0 0 8px">Deletes expired identity documents (ID/passport/EHIC past their expiry date) right now, instead of waiting for the scheduled run. Login codes are not affected.</p>' +
-            '<button class="ghost" id="ad-cleanup">Delete expired documents now</button>';
-          body.querySelector('#ad-cleanup').onclick = async () => {
-            try {
-              const res = await Store.adminApi('/api/admin/cleanup', { method: 'POST', body: 'null' }, getTok());
-              toast(res.deleted ? 'Deleted ' + res.deleted + ' expired document(s)' : 'Nothing expired to delete');
-              load();
-            } catch (e) { body.insertAdjacentHTML('afterbegin', '<p class="meta log-error">' + esc((e.code || 'ERR') + ': ' + e.message) + '</p>'); }
-          };
-        } else if (tab === 'sources') {
-          const out = await Store.adminApi('/api/admin/erasmus-sources', {}, tok);
-          const list = out.sources || [];
-          body.innerHTML =
-            '<p class="hint" style="margin:0 0 10px">Checks each partner country\'s official Erasmus+ site for changes - it cannot reliably parse call/deadline details out of eight different languages and layouts, so "changed" just means the page text is different since the last check (sometimes a rotating banner, not real news). Follow the link to see for yourself.</p>' +
-            '<button class="ghost" id="ad-rescan">Scan sites now</button>' +
-            '<div id="src-list" style="margin-top:12px"></div>';
-          const srcList = body.querySelector('#src-list');
-          const drawSources = rows => {
-            srcList.innerHTML = rows.length ? rows.map(s =>
-              '<div class="doc-row"><span style="flex:1;min-width:0">' +
-              '<span class="doc-name">' + esc(s.country) + (s.changed ? ' <span class="badge due">Changed</span>' : '') +
-              (!s.ok ? ' <span class="badge due" style="background:var(--none-soft);color:var(--none)">Error</span>' : '') + '</span><br/>' +
-              '<span class="doc-meta">' + esc(s.agency) + ' - ' + esc(s.ts) + '</span><br/>' +
-              (s.ok
-                ? '<span class="doc-meta">' + esc((s.snippet || '').slice(0, 160)) + '…</span>'
-                : '<span class="doc-meta" style="color:var(--none)">' + esc(s.error || 'unreachable') + '</span>') +
-              '</span>' +
-              '<a class="icon-btn" href="' + esc(s.url) + '" target="_blank" rel="noopener" aria-label="Open the official site">' + icon('external-link') + '</a>' +
-              '</div>'
-            ).join('') : '<p class="meta">No checks yet - tap "Scan sites now".</p>';
-          };
-          drawSources(list);
-          body.querySelector('#ad-rescan').onclick = async () => {
-            body.querySelector('#ad-rescan').disabled = true;
-            try {
-              const res = await Store.adminApi('/api/admin/erasmus-sources/scan', { method: 'POST', body: 'null' }, getTok());
-              drawSources(res.sources || []);
-              toast('Sites checked');
-            } catch (e) { body.insertAdjacentHTML('afterbegin', '<p class="meta log-error">' + esc((e.code || 'ERR') + ': ' + e.message) + '</p>'); }
-            body.querySelector('#ad-rescan').disabled = false;
-          };
-        } else if (tab === 'logs') {
-          const out = await Store.adminApi('/api/admin/logs?limit=' + encodeURIComponent(logLimit) + (logLevel ? '&level=' + encodeURIComponent(logLevel) : ''), {}, tok);
-          const logs = out.logs || [];
-          body.innerHTML =
-            '<div class="log-toolbar">' +
-            '<div class="select-wrap"><select id="log-level">' +
-            ['', 'INFO', 'WARN', 'ERROR'].map(v => '<option value="' + v + '" ' + (v === logLevel ? 'selected' : '') + '>' + (v || 'All levels') + '</option>').join('') +
-            '</select>' + icon('chevron-down', 'sel-ico') + '</div>' +
-            '<div class="select-wrap"><select id="log-limit">' +
-            ['50', '100', '200', '500'].map(v => '<option ' + (v === logLimit ? 'selected' : '') + '>' + v + '</option>').join('') +
-            '</select>' + icon('chevron-down', 'sel-ico') + '</div>' +
-            '<input id="log-q" placeholder="Search logs..." />' +
-            '</div>' +
-            '<p class="meta">' + logs.length + ' lines shown</p>' +
-            '<div class="log-box">' +
-            (logs.map(l =>
-              '<p class="meta log-' + esc(l.level.toLowerCase()) + '" title="' + esc(l.ts) + '">' + esc(l.ts.slice(5, 16)) + ' [' + esc(l.level) + ' ' + esc(l.category) + '] ' +
-              esc(l.event) + (l.detail ? ' - ' + esc(l.detail.slice(0, 200)) : '') + '</p>'
-            ).join('') || '<p class="meta">No log lines</p>') +
-            '</div>';
-          body.querySelector('#log-level').onchange = e => { logLevel = e.target.value; load(); };
-          body.querySelector('#log-limit').onchange = e => { logLimit = e.target.value; load(); };
-          body.querySelector('#log-q').oninput = e => {
-            const qq = e.target.value.toLowerCase();
-            body.querySelectorAll('.log-box p').forEach(p => { p.hidden = !!qq && p.textContent.toLowerCase().indexOf(qq) === -1; });
-          };
-        } else {
-          const out = await Store.adminApi('/api/admin/messages', {}, tok);
-          body.innerHTML =
-            '<div class="form-field"><textarea id="ad-msg" rows="2" placeholder="Message text..."></textarea></div>' +
-            '<div class="form-field"><input id="ad-to" placeholder="To user id (empty = broadcast to all)" /></div>' +
-            '<button class="ghost" id="ad-send">Send</button>' +
-            '<p class="section-label" style="margin-top:10px">History</p>' +
-            ((out.messages || []).map(m =>
-              '<p class="meta">' + esc(m.ts) + (m.from_admin ? ' [Admin] to ' + esc(m.to_email || m.to_user || 'all') : ' [User ' + esc(String(m.from_user).slice(0, 8)) + ']') + ': ' + esc(m.text) + '</p>'
-            ).join('') || '<p class="meta">No messages</p>');
-          body.querySelector('#ad-send').onclick = async () => {
-            try {
-              await Store.adminApi('/api/admin/messages', {
-                method: 'POST',
-                body: JSON.stringify({ text: body.querySelector('#ad-msg').value, to_user: body.querySelector('#ad-to').value.trim() || null }),
-              }, getTok());
-              toast('Message sent');
-              load();
-            } catch (e) { body.insertAdjacentHTML('afterbegin', '<p class="meta log-error">' + esc((e.code || 'ERR') + ': ' + e.message) + '</p>'); }
-          };
-        }
-      } catch (e) {
-        body.innerHTML = '<p class="meta log-error">' + esc((e.code || 'ERR') + ': ' + e.message) + '</p>';
-      }
+    function drawResult() {
+      const cmp = compare(data.la, rows);
+      const recognised = cmp.filter(c => c.status === 'ok');
+      const ectsOk = recognised.reduce((s, c) => s + (c.home_ects || 0), 0);
+      const totalHome = data.home_courses.reduce((s, c) => s + c.ects, 0);
+      const inLa = new Set(data.la.map(r => r.home_course_id));
+      const okIds = new Set(recognised.map(r => r.home_course_id));
+      const todo = data.home_courses.filter(c => !okIds.has(c.id));
+      result.innerHTML = label(T('Credit recognition')) +
+        (rows.length
+          ? '<h2>' + esc(T('{a} of {b} UPT credits recognised', { a: ectsOk, b: totalHome })) + '</h2>' +
+            '<div class="ects-bar"><div style="width:' + Math.min(100, ectsOk / Math.max(1, totalHome) * 100) + '%"></div></div>'
+          : hint(T('After your exams abroad, enter or scan the host Transcript of Records. PoliGo compares it with your Learning Agreement.'), 'margin-top:0')) +
+        '<div style="margin-top:12px">' + cmp.map(c => {
+          const [cls, ico, text] = STATUS[c.status];
+          return '<div class="match-row"><div class="line1"><span>' + esc(c.partner_name) + '</span><span class="arrow">' + icon('arrow-right', 'sm-ico') + '</span><span>' + esc(T(c.home_name)) + '</span></div>' +
+            '<div class="line2">' + (rows.length ? '<span class="pill ' + cls + '">' + icon(ico, 'sm-ico') + ' ' + esc(T(text)) + '</span>' : '<span></span>') +
+            '<span>' + esc(T('planned {n} ECTS', { n: c.partner_ects })) + (c.tor ? ' · ' + esc(T('got {n} ECTS, grade {g}', { n: c.tor.ects, g: c.tor.grade || '-' })) : '') + '</span></div></div>';
+        }).join('') + '</div>' +
+        (rows.length && todo.length
+          ? '<p class="section-label" style="margin-top:16px">' + esc(T('Still to cover at UPT')) + '</p>' +
+            todo.map(c => '<div class="task-card"><span><span class="t-title">' + esc(T(c.name)) + '</span><span class="t-meta">' + c.ects + ' ECTS · ' +
+              esc(T(inLa.has(c.id) ? 'in the Learning Agreement, not recognised yet' : 'not in the Learning Agreement')) + '</span></span></div>').join('') +
+            hint(T('Talk to your faculty coordinator about these before the recognition deadline.'))
+          : '');
     }
 
-    tokenRow.addEventListener('change', load);
-    wrap.querySelectorAll('[data-tab]').forEach(b => {
-      b.onclick = () => { tab = b.dataset.tab; load(); };
+    function drawEditor() {
+      editor.innerHTML = label(T('Transcript of Records (host)')) +
+        '<div id="tor-rows">' + rows.map((r, i) =>
+          '<div class="tor-row" data-i="' + i + '">' +
+          '<input data-k="name" value="' + esc(r.name) + '" placeholder="' + esc(T('Course name')) + '" aria-label="' + esc(T('Course name')) + '" />' +
+          '<input data-k="ects" class="num" inputmode="decimal" value="' + esc(r.ects) + '" aria-label="ECTS" />' +
+          '<input data-k="grade" value="' + esc(r.grade) + '" placeholder="' + esc(T('Grade')) + '" aria-label="' + esc(T('Grade')) + '" />' +
+          '<label class="tor-pass"><input type="checkbox" data-k="passed" ' + (r.passed ? 'checked' : '') + ' /> ' + esc(T('passed')) + '</label>' +
+          '<button class="icon-btn" data-del aria-label="' + esc(T('Remove')) + '">' + icon('trash-2') + '</button>' +
+          '</div>').join('') + '</div>' +
+        '<div class="two-btns">' +
+        '<button class="ghost" id="tor-add">' + icon('plus', 'inline-ico') + ' ' + esc(T('Add a course')) + '</button>' +
+        '<button class="ghost" id="tor-from-la">' + esc(T('Start from my Learning Agreement')) + '</button>' +
+        '</div>' +
+        '<div class="form-field" style="margin-top:12px"><label>' + esc(T('Or scan the transcript')) + '</label>' +
+        '<input id="tor-file" type="file" accept="image/*,application/pdf" /></div>' +
+        '<button class="ghost" id="tor-scan">' + icon('scan-line', 'inline-ico') + ' ' + esc(T('Read the transcript')) + '</button>' +
+        '<button class="primary" id="tor-save">' + esc(T('Save and check')) + '</button>';
+      editor.querySelectorAll('.tor-row').forEach(rowEl => {
+        const i = +rowEl.dataset.i;
+        rowEl.querySelectorAll('[data-k]').forEach(inp => {
+          const k = inp.dataset.k;
+          const upd = () => {
+            rows[i][k] = k === 'passed' ? inp.checked : k === 'ects' ? (parseFloat(String(inp.value).replace(',', '.')) || 0) : inp.value;
+            drawResult();
+          };
+          inp.oninput = upd; inp.onchange = upd;
+        });
+        rowEl.querySelector('[data-del]').onclick = () => { rows.splice(i, 1); drawEditor(); drawResult(); };
+      });
+      editor.querySelector('#tor-add').onclick = () => { rows.push({ name: '', ects: 0, grade: '', passed: true }); drawEditor(); };
+      editor.querySelector('#tor-from-la').onclick = () => {
+        const have = new Set(rows.map(r => norm(r.name)));
+        data.la.forEach(r => { if (!have.has(norm(r.partner_name))) rows.push({ name: r.partner_name, ects: r.partner_ects, grade: '', passed: true }); });
+        drawEditor(); drawResult();
+      };
+      editor.querySelector('#tor-scan').onclick = async () => {
+        const file = editor.querySelector('#tor-file').files[0];
+        if (!file) { toast(T('Choose a photo or PDF first')); return; }
+        toast(T('Reading your document...'));
+        try {
+          const out = await Store.scanTranscript(file);
+          rows = (out.courses || []).map(c => ({ name: c.name, ects: c.ects, grade: c.grade, passed: !!c.passed }));
+          drawEditor(); drawResult();
+          toast(out.sample ? T('Sample result - no API key is configured on this server.') : T('Check the rows, then save.'));
+        } catch (e) { toast(errText(e)); }
+      };
+      editor.querySelector('#tor-save').onclick = async () => {
+        try {
+          await Store.saveTranscript(rows.filter(r => String(r.name).trim()));
+          toast(T('Saved'));
+        } catch (e) { toast(errText(e)); }
+      };
+    }
+
+    drawResult();
+    drawEditor();
+  }
+
+  /* -------------------------------------------------------------------- intro */
+
+  // The start window once you are Titular: the globe flies from Timisoara to the
+  // partner city, then the countdown. Shown once per mobility on this device.
+  function showIntro() {
+    const mob = mobility();
+    const uni = mob && Store.uniById(mob.university_id);
+    if (!uni || document.getElementById('intro')) return Promise.resolve();
+    return new Promise(resolveIntro => {
+      const ov = h('<div id="intro" data-theme="dark" role="dialog" aria-modal="true" aria-label="' + esc(T('Your Erasmus journey')) + '">' +
+        '<div class="intro-globe" id="intro-globe"></div>' +
+        '<div class="intro-copy">' +
+        '<p class="intro-cap" id="in-cap"></p>' +
+        '<div class="intro-final">' +
+        '<h1 class="intro-greet">' + esc(uni.greeting || '') + '</h1>' +
+        '<p class="intro-line">' + esc(T('Congratulations! You are going to {city}, {country}.', { city: uni.city, country: T(uni.country) })) + '</p>' +
+        countdownHtml() +
+        '<button class="primary" id="in-go">' + esc(T('Open the mobility guide')) + '</button>' +
+        '</div>' +
+        '<button class="link intro-skip" id="in-skip">' + esc(T('Skip')) + '</button>' +
+        '</div></div>');
+      document.body.appendChild(ov);
+      document.body.classList.add('no-scroll');
+      const cap = ov.querySelector('#in-cap');
+      tickCountdown(ov);
+      const tick = setInterval(() => tickCountdown(ov), 10000);
+      let scene = null;
+      let closed = false;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        clearInterval(tick);
+        document.removeEventListener('keydown', onKey);
+        document.body.classList.remove('no-scroll');
+        ov.classList.add('leaving');
+        setTimeout(() => ov.remove(), 260);
+        resolveIntro();
+      };
+      const onKey = ev => { if (ev.key === 'Escape') close(); };
+      document.addEventListener('keydown', onKey);
+      const showFinal = () => {
+        cap.textContent = '';
+        ov.classList.add('done');
+        const goBtn = ov.querySelector('#in-go');
+        if (goBtn) goBtn.focus({ preventScroll: true });
+      };
+      ov.querySelector('#in-go').onclick = close;
+      ov.querySelector('#in-skip').onclick = () => (ov.classList.contains('done') ? close() : (scene && scene.finish(), showFinal()));
+      try { scene = Stage.introGlobe(ov.querySelector('#intro-globe'), uni); } catch (err) { console.warn('[intro]', err); }
+      if (!scene) { showFinal(); return; }
+      scene.play(step => {
+        if (closed || ov.classList.contains('done')) return;
+        if (step === 1) cap.textContent = T('You are here: Timișoara');
+        else if (step === 2) cap.textContent = T('Your destination: {city}, {country}', { city: uni.city, country: T(uni.country) });
+        else showFinal();
+      }).catch(() => showFinal());
     });
-    wrap.querySelector('#ad-back').onclick = () => goBack();
-    if (token) load();
-    else body.innerHTML = '<p class="hint">Enter the admin token - run: docker compose exec poligo cat /app/data/admin_token.txt</p>';
-    root.appendChild(wrap);
+  }
+
+  function maybeIntro() {
+    const mob = mobility();
+    if (!mob) return Promise.resolve();
+    const key = 'poligo-intro-' + mob.id;
+    try { if (localStorage.getItem(key)) return Promise.resolve(); localStorage.setItem(key, '1'); } catch (e) { /* no storage */ }
+    return showIntro();
   }
 
   /* -------------------------------------------------------------------- start */
@@ -2124,13 +1351,13 @@ const App = (() => {
   async function start() {
     await Store.boot();
     Stage.init();
-    const st = Store.state;
-    const screen = (st.sessionEmail || st.seenLanding) ? afterAuth() : 'landing';
-    go(screen, { replace: true, force: true });
-    if (screen !== 'landing') maybeIntro();
+    const raw = (location.hash || '').replace(/^#/, '');
+    const first = raw || (hasGuide() ? 'today' : 'home');
+    go(first, { replace: true, force: true });
+    if (!st().noSession && GUIDE_SCREENS.has(st().screen)) maybeIntro();
   }
 
-  return { start, go, goBack, goHome, render, toast, showFatal, showIntro };
+  return { start, go, goBack, render, toast, showFatal, showIntro };
 })();
 
 App.start();

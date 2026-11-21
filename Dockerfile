@@ -1,5 +1,5 @@
 # PoliGo — minimal single-container deployment.
-# App + SQLite + Python-rendered animations, no external services.
+# App + SQLite; the only external call is the document scanner (Claude API).
 FROM python:3.12-slim
 
 WORKDIR /app

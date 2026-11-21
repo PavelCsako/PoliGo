@@ -1,42 +1,15 @@
-"""Structured logging + uptime + admin token.
+"""Structured logging + uptime.
 
-Every meaningful server event (auth, data changes, admin actions, errors)
-is appended to the `logs` table with a level and category, so the admin tab
-can answer: who logged in, what was written, how, and what failed.
-Admin access uses a bearer token: either the POLIGO_ADMIN_TOKEN env var or
-a random one generated once and stored in data/admin_token.txt.
+Server events (errors, scans) are appended to the `logs` table with a level
+and category, for whoever operates the server.
 """
-import os
-import secrets
 from datetime import datetime
 
-from server.db import db, DB_PATH
+from server.db import db
 
 STARTED = datetime.utcnow()
 
 LEVELS = ("INFO", "WARN", "ERROR")
-
-
-def admin_token() -> str:
-    env = os.environ.get("POLIGO_ADMIN_TOKEN", "").strip()
-    if env:
-        return env
-    path = db_path()
-    os.makedirs(path, exist_ok=True)
-    token_file = os.path.join(path, "admin_token.txt")
-    if os.path.exists(token_file):
-        with open(token_file) as f:
-            t = f.read().strip()
-            if t:
-                return t
-    t = secrets.token_urlsafe(24)
-    with open(token_file, "w") as f:
-        f.write(t)
-    return t
-
-
-def db_path() -> str:
-    return os.path.dirname(DB_PATH)
 
 
 def now() -> str:

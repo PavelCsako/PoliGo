@@ -5,6 +5,12 @@ services:
       - "8000:8000"
     volumes:
       - poligo-data:/app/data
+    environment:
+      # the document scanner (Claude vision); without a key it answers with a sample
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # demo = fictional students for the pitch; the real platform adapter replaces it
+      - POLIGO_PLATFORM_MODE=${POLIGO_PLATFORM_MODE:-demo}
+      - POLIGO_PLATFORM_URL=${POLIGO_PLATFORM_URL:-https://mobilitati.upt.ro}
     restart: unless-stopped
 
   # Optional Cloudflare Tunnel connector. Off by default; start with:

@@ -4,17 +4,17 @@
  *  - cache-first (immutable, on-device): app shell, seed endpoints, and every
  *    Python-rendered animation clip. The server streams a clip once; all later
  *    playbacks come from this cache.
- *  - network-first with cache fallback: user data reads (profile, tasks,
- *    scans) so journeys still open offline.
+ *  - network-first with cache fallback: reads backed by the platform session
+ *    (agreements, guide, scans) so the app still opens offline.
  *  - never cached: writes (POST/PATCH/DELETE).
  */
-const VERSION = 'poligo-v15';
+const VERSION = 'poligo-v17';
 const SHELL = VERSION + '-shell';
 const DATA = VERSION + '-data';
 
 const PRECACHE = [
   '/', '/index.html', '/styles/app.css',
-  '/js/icons.js', '/js/store.js', '/js/globe.js', '/js/stage.js', '/js/term.js', '/js/app.js',
+  '/js/icons.js', '/js/store.js', '/js/globe.js', '/js/stage.js', '/js/app.js',
   '/vendor/d3-array.min.js', '/vendor/d3-geo.min.js', '/data/countries.geo.json', '/assets/icon.svg',
   '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png',
 ];
@@ -45,14 +45,15 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // seed endpoints: cache-first, refreshed when the network responds
-  if (url.pathname === '/api/universities' || url.pathname === '/api/home-courses') {
+  // the course catalogue: cache-first
+  if (url.pathname === '/api/home-courses') {
     e.respondWith(cacheFirst(req, DATA));
     return;
   }
 
-  // user data reads: network-first, fall back to cache offline
-  if (url.pathname.startsWith('/api/')) {
+  // platform-backed reads (session, agreements, guide): network-first, cache offline;
+  // the calendar file is a download, never cached
+  if (url.pathname.startsWith('/api/') && url.pathname !== '/api/calendar.ics') {
     e.respondWith(networkFirst(req, DATA));
   }
 });

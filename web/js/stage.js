@@ -162,7 +162,7 @@ const Stage = (() => {
     const { lang, country, region, quality } = Store.state.filters || {};
     return Store.sortedUnis().filter(u =>
       typeof u.lat === 'number' && typeof u.lng === 'number' &&
-      (!lang || (u.languages || []).includes(lang)) &&
+      (!lang || (u.agreement && u.agreement.language === lang)) &&
       (!country || u.country === country) &&
       (!region || regionOf(u.country) === region) &&
       (!quality || tier(u) === quality));

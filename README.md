@@ -1,53 +1,57 @@
 # PoliGo
 
-Erasmus companion for Politehnica University Timișoara students. Load your
-subjects, see on the globe how many match at each partner university, and after
-"I got accepted" the app walks your whole mobility: timeline, scanned documents,
-credit recognition.
+Erasmus companion for Politehnica University Timișoara students, built to live
+**inside the UPT mobility platform** (Profil · Abilități lingvistice ·
+Aplicații pentru mobilități). It adds two entries to the student menu:
+
+- **Alege destinația** (`#destinatie`, before applying): the faculty's real
+  agreements on a globe, course matching against your UPT semester, your level
+  from *Abilități lingvistice* compared with the agreement's language of
+  instruction ("you have B2 in English, that works" / "you need B1 in
+  Portuguese"), the places left in the round, favourites, a **Learning
+  Agreement draft (PDF)** built from the matches, and an **Apply to this
+  agreement** button that opens the platform's own form.
+- **Ghidul mobilității** (`#ghid`, once the platform lists you as *Titular* /
+  *Aprobat*): what to do now, the platform's documents explained in plain words
+  with their official deadlines, the steps the platform does not track (host
+  application, accommodation, local registration, LA changes in the first two
+  weeks), a **scanner** for papers received abroad, and at the end the **return
+  check**: Learning Agreement vs. the host Transcript of Records.
 
 **Leave on Erasmus. Come back with every credit.**
 
-## Architecture (prototype)
+## What PoliGo does NOT keep
 
-Single small container, deliberately thin server, heavy on-device caching:
+Everything the platform already has is read from it, never stored again:
+identity, faculty / year / average, language levels, agreements, application
+status (the committee decides in the platform) and official documents. There is
+no PoliGo login (the platform session is used), no profile, no copy of ID card /
+passport / health card (a GDPR risk with no benefit), no admin approvals and no
+inbox (the platform has notifications and chat). Databases from older versions
+drop those tables and columns on start (`server/db.py`, `MIGRATIONS`).
+
+PoliGo's own data: favourites, LA drafts, its own steps (done / not done),
+scan results (the photo itself is not stored) and the transcript rows of the
+return check.
+
+## Architecture
 
 ```
-Dockerfile            python:3.12-slim + FastAPI + SQLite + Pillow
 server/
-  main.py             thin JSON API + static hosting (all user data -> SQLite)
-  db.py               schema + WAL SQLite, single file on a volume
-  auth.py             login with a @student.upt.ro address + 6-digit code (no sign-up)
-  seed.py             8 partner universities, courses, precomputed matches (idempotent)
-  i18n.py, i18n_ro.py server-side translation table (Romanian), refreshed on every request
-  anim/               Pillow MJPEG clips - no longer used by the UI (the intro is drawn on the device)
-web/                  static PWA (no build step): vanilla JS + canvas globe
-  js/app.js           screens, router, top bar, Home, intro, all text through T()
-  js/stage.js         every globe scene: page background, Home, Map, journey intro
-  js/globe.js         canvas globe (d3-geo orthographic), Natural Earth 110m data
-  js/store.js         state + API client, mirrors user data to localStorage
-  js/term.js          hidden command line (backquote key)
-  sw.js               cache policy (see below)
-tools/                map/icon generators (deterministic, committed output)
+  main.py         JSON API + static hosting
+  platform.py     adapter for the mobility platform: session, profile, languages,
+                  agreements, rounds, applications, documents. Ships a DEMO backend
+                  (two fictional students); the real platform API replaces it here.
+  scanner.py      Claude vision: explains a document / reads a Transcript of Records
+  db.py           SQLite schema + migrations
+  seed.py         course catalogue + precomputed matches, PoliGo's own steps
+  ical.py         .ics export of the official deadlines + steps
+  i18n.py, i18n_ro.py   Romanian table (default language, like the platform)
+web/              static PWA, no build step
+  js/app.js       screens and router
+  js/store.js     state + API client (platform-session based)
+  js/stage.js, js/globe.js   the globe (d3-geo, Natural Earth 110m)
 ```
-
-### What runs where
-
-| Concern | Device | Server |
-| --- | --- | --- |
-| App shell, globe, screens | yes (cached PWA, installs on phone) | static files only |
-| Animations | drawn on the device (vector canvas, sharp at any size) | nothing |
-| Course catalogue + match summaries | cached on first load | SQLite, precomputed |
-| User data (profile, shortlist, mobility, tasks, scans) | offline mirror | SQLite, always authoritative |
-| Document scans | image never leaves the device in the prototype; only the JSON result is stored | hook for the vision model |
-
-### Caching rules (why the server stays idle)
-
-- **Reused constantly** (shell, map geometry, university/course catalogue,
-  animation clips): served once, then `cache-first` in the service worker —
-  `poligo-anim-v1` for clips, `poligo-v1-data` for seed endpoints.
-- **One-time use** (scan results): fetched once per device, never re-fetched.
-- **User data**: always written to SQLite; reads mirror to localStorage so the
-  app opens offline with the last known state.
 
 ## Run
 
@@ -62,70 +66,35 @@ pip install -r requirements.txt
 uvicorn server.main:app --port 8000
 ```
 
-Regenerating the committed generated data:
+Environment:
 
-```bash
-python tools/build_map.py      # web/data/countries-110m.geojson
-python tools/make_icons.py     # web/icons/*.png
-```
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | unset | enables the real scanner (model `claude-opus-5-5`, override with `POLIGO_SCAN_MODEL`). Without it the scanner returns a clearly marked sample. |
+| `POLIGO_PLATFORM_MODE` | `demo` | `demo` = fictional students and a demo-session picker. |
+| `POLIGO_PLATFORM_URL` | `https://mobilitati.upt.ro` | base for "Apply to this agreement", "Language skills" and document links. |
 
-## Using the app
+## Demo path
 
-- **Log in**: only `name@student.upt.ro` addresses are accepted, there is no
-  separate sign-up (the first successful login creates the account). Without an
-  SMTP server configured the 6-digit code is shown on screen.
-- **Top bar** (always there): the PoliGo logo takes you to **Home**; next to it
-  the language (RO/EN), the theme (dark/light), the Home button and the Profile
-  button (log out lives in Profile).
-- **Home**: the globe with Romania and your destination, a live countdown in
-  days / hours / minutes and the menu. After "I got accepted" a full-screen intro
-  flies from Timișoara to the partner city and shows up on every launch.
-- **Background**: every screen has the planet behind it; once you open or accept
-  a university it frames Romania and the partner country side by side.
-- Dates are always entered and shown as day.month.year.
+Open the app without a platform session: a **demo session** picker stands in
+for the platform login (presentation only).
 
-## Data + demo path
+1. **Ana Popescu** - round 2 is open. Overview -> Agreements -> Setúbal: 6/6
+   courses match, but "you need B1 in Portuguese"; Leuven: "you have B2 in
+   English, that works". Favourite it, make the LA draft (the browser's print
+   dialog saves it as PDF), "Apply to this agreement" opens the platform form.
+   The guide stays locked: she is not Titular.
+2. **Radu Ionescu** - Titular at Setúbal. The intro flies Timișoara -> Setúbal,
+   then Today / Plan / Documents / Scan / Recognition.
 
-Partner universities (demo data - confirm the real agreements with the UPT
-Erasmus Office): St. Pölten UAS, Instituto Politécnico de Setúbal,
-UC Leuven-Limburg, Vidzeme UAS, Saxion, Hochschule Fulda, JAMK and MATE. Six
-Computer Science year-3/spring subjects with precomputed Good/Partial/No-match
-rows. Adding a university = adding it to `server/seed.py` (rows that are
-missing are inserted on the next start; existing databases keep their data).
+The pitch page (the old landing page) is at `#pitch` only.
 
-Demo flow: Landing -> Log in -> Setup -> Home -> Map -> University detail (with a
-link to its site) -> Shortlist -> "I got accepted" (day/month/year pickers) ->
-**waiting for approval** (Home shows the request; it checks every 30 s) -> an admin
-approves it in `/#admin` -> intro -> Home with countdown -> Today / Plan (steps +
-calendar) / Documents (Erasmus papers + your ID documents + scans) / Profile.
-The scanner returns a canned vision-model result; the real model call plugs into
-`POST /api/scan`, API key stays server-side.
+## Connecting the real platform
 
-### Admin
-
-There is no admin *account*: the admin panel is a screen protected by a token.
-
-1. Get the token: `docker compose exec poligo cat /app/data/admin_token.txt`
-   (or set your own with the `POLIGO_ADMIN_TOKEN` environment variable).
-2. Open `http://<host>:8000/#admin` (or press the backquote key and type `admin`).
-3. Paste the token. Tabs: **Approvals** (approve / reject "I got accepted"
-   requests; the student gets a message in Profile), Summary, Logs, Messages.
-
-### On a phone
-
-PoliGo is a PWA: there is nothing to download from a store. Put it on a public
-HTTPS address (see the Cloudflare Tunnel section below; phones only install
-PWAs over HTTPS), open it on the phone, then **Android / Chrome**: menu ->
-*Install app* (or the *Install the app* button in Profile); **iPhone / Safari**:
-Share -> *Add to Home Screen*. It then opens full screen with its own icon.
-
-Romanian lives in `server/i18n_ro.py`; any string missing there simply shows in
-English. To add a language, add a table next to it and register it in `i18n.py`.
-
-## What's intentionally out of scope for the prototype
-
-- Live AI matching of user-uploaded PDFs (hooks exist; matches are precomputed)
-- LA-draft PDF export, compare screen, return/recognition screen
+Re-implement the public functions of `server/platform.py` (`current_student`,
+`agreements_for`, `applications_for`, `documents_for`, `current_round`,
+`round_by_id`, `apply_url`, `documents_url`, `languages_url`) against the
+platform's API, forwarding its session cookie. Nothing else reads platform data.
 
 ## Expose on a domain (Cloudflare Tunnel)
 
@@ -154,5 +123,5 @@ docker run --rm -d --name cloudflared --add-host=host.docker.internal:host-gatew
 ```
 
 Quick-URLs are random and die with the container; use a named tunnel for a
-real deployment. The admin panel (`/#admin`) is reachable from the domain and
-protected only by the token in `data/admin_token.txt` inside the container.
+real deployment. In demo mode anyone reaching the domain can open a demo
+session; set `POLIGO_PLATFORM_MODE` to something else to turn that off.

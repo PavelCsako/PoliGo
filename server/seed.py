@@ -1,9 +1,9 @@
 """Seed data for the PoliGo prototype.
 
-Partner universities: the E3UDRES2 shortlist from the app spec plus the extra
-partners from the PoliGo design repo (Saxion, Fulda, JAMK, MATE). They are DEMO
-data - the courses and the matches are illustrative, confirm the real
-agreements with the UPT Erasmus Office before presenting them as official.
+Partner universities and their courses: the course catalogue PoliGo matches
+against. Which of them the student may actually apply to (the agreements, the
+language, the places) comes from the mobility platform (server/platform.py).
+The courses and the matches are illustrative demo data.
 Matches are precomputed once and stored, so the demo is instant and
 deterministic; on-the-fly matching plugs in later (run_matching.py hook).
 
@@ -11,7 +11,6 @@ seed() is idempotent: it only inserts rows that are missing, so adding a
 university here reaches existing databases on the next start.
 """
 from server.db import j
-from server.db import parse
 from server.db import db
 from server.db import init_db
 
@@ -91,82 +90,6 @@ PARTNER_COURSES = [
     {"id": "mat-web", "university_id": "mate", "name": "Web Development Basics", "ects": 5, "semester": 2, "language": "English", "description": "HTTP, client-side programming and version control."},
 ]
 
-# ============================================================================
-# TEMPORARY FICTIONAL DEMO DATA - not real institutions, not real partnerships.
-# Added to stress-test the map/filters/favorites UI with more than a handful
-# of entries while the real partner list is still short. To remove: delete
-# this block (TEMP_UNIVERSITIES / TEMP_PARTNER_COURSES / TEMP_MATCHES) and
-# drop the three "+ TEMP_..." lines inside seed() below.
-# ============================================================================
-TEMP_UNIVERSITIES = [
-    {"id": "demo-fr", "name": "Institut Supérieur de Technologie de Lenoir (fictional - demo only)", "city": "Lenoir-sur-Seine", "country": "France", "country_code": "FR", "lat": 47.30, "lng": 0.90, "languages": ["French", "English"], "website": "https://example.com/demo-fr", "greeting": "Bon voyage !"},
-    {"id": "demo-it", "name": "Accademia di Scienze Applicate di Serrano (fictional - demo only)", "city": "Serrano Marittima", "country": "Italy", "country_code": "IT", "lat": 43.70, "lng": 11.00, "languages": ["Italian", "English"], "website": "https://example.com/demo-it", "greeting": "Buon viaggio!"},
-    {"id": "demo-pl", "name": "Politechnika Wiślana (fictional - demo only)", "city": "Nowogard Wschodni", "country": "Poland", "country_code": "PL", "lat": 51.90, "lng": 19.10, "languages": ["Polish", "English"], "website": "https://example.com/demo-pl", "greeting": "Szerokiej drogi!"},
-    {"id": "demo-se", "name": "Nordvik University of Applied Sciences (fictional - demo only)", "city": "Nordvik", "country": "Sweden", "country_code": "SE", "lat": 55.70, "lng": 13.20, "languages": ["Swedish", "English"], "website": "https://example.com/demo-se", "greeting": "Trevlig resa!"},
-]
-
-TEMP_PARTNER_COURSES = [
-    # Lenoir (fictional)
-    {"id": "dfr-ai", "university_id": "demo-fr", "name": "Intelligence Artificielle", "ects": 6, "semester": 2, "language": "French", "description": "Demo course: search, machine learning, neural networks."},
-    {"id": "dfr-os", "university_id": "demo-fr", "name": "Systèmes d'Exploitation", "ects": 5, "semester": 2, "language": "French", "description": "Demo course: processes, scheduling, memory management."},
-    {"id": "dfr-net", "university_id": "demo-fr", "name": "Réseaux Informatiques", "ects": 5, "semester": 2, "language": "English", "description": "Demo course: TCP/IP, routing, sockets."},
-    {"id": "dfr-comp", "university_id": "demo-fr", "name": "Compilation", "ects": 6, "semester": 2, "language": "French", "description": "Demo course: parsing, code generation."},
-    {"id": "dfr-db", "university_id": "demo-fr", "name": "Bases de Données", "ects": 4, "semester": 2, "language": "English", "description": "Demo course: SQL, transactions, normalization."},
-    {"id": "dfr-se", "university_id": "demo-fr", "name": "Génie Logiciel", "ects": 4, "semester": 2, "language": "English", "description": "Demo course: agile methods, testing, design patterns."},
-    # Serrano (fictional)
-    {"id": "dit-ai", "university_id": "demo-it", "name": "Intelligenza Artificiale", "ects": 6, "semester": 2, "language": "Italian", "description": "Demo course: search, machine learning, ethics."},
-    {"id": "dit-os", "university_id": "demo-it", "name": "Sistemi Operativi", "ects": 5, "semester": 2, "language": "English", "description": "Demo course: processes, threads, file systems."},
-    {"id": "dit-net", "university_id": "demo-it", "name": "Reti di Calcolatori", "ects": 5, "semester": 2, "language": "English", "description": "Demo course: TCP/IP, HTTP, network security."},
-    {"id": "dit-comp", "university_id": "demo-it", "name": "Compilatori", "ects": 6, "semester": 2, "language": "Italian", "description": "Demo course: lexical analysis, semantic analysis."},
-    {"id": "dit-db", "university_id": "demo-it", "name": "Basi di Dati", "ects": 4, "semester": 2, "language": "English", "description": "Demo course: SQL, indexing, normalization."},
-    {"id": "dit-se", "university_id": "demo-it", "name": "Ingegneria del Software", "ects": 4, "semester": 2, "language": "English", "description": "Demo course: version control, testing, design patterns."},
-    # Nowogard (fictional)
-    {"id": "dpl-ai", "university_id": "demo-pl", "name": "Sztuczna Inteligencja", "ects": 6, "semester": 2, "language": "English", "description": "Demo course: constraint satisfaction, neural networks."},
-    {"id": "dpl-os", "university_id": "demo-pl", "name": "Systemy Operacyjne", "ects": 5, "semester": 2, "language": "Polish", "description": "Demo course: scheduling, memory management."},
-    {"id": "dpl-net", "university_id": "demo-pl", "name": "Sieci Komputerowe", "ects": 5, "semester": 2, "language": "English", "description": "Demo course: routing, sockets, network security."},
-    {"id": "dpl-comp", "university_id": "demo-pl", "name": "Kompilatory", "ects": 6, "semester": 2, "language": "Polish", "description": "Demo course: parsing, code generation."},
-    {"id": "dpl-db", "university_id": "demo-pl", "name": "Bazy Danych", "ects": 4, "semester": 2, "language": "English", "description": "Demo course: transactions, indexing."},
-    {"id": "dpl-se", "university_id": "demo-pl", "name": "Inżynieria Oprogramowania", "ects": 4, "semester": 2, "language": "English", "description": "Demo course: agile methods, testing."},
-    # Nordvik (fictional)
-    {"id": "dse-ai", "university_id": "demo-se", "name": "Artificial Intelligence", "ects": 6, "semester": 2, "language": "English", "description": "Demo course: search, machine learning, ethics."},
-    {"id": "dse-os", "university_id": "demo-se", "name": "Operating Systems", "ects": 5, "semester": 2, "language": "English", "description": "Demo course: processes, scheduling, file systems."},
-    {"id": "dse-net", "university_id": "demo-se", "name": "Computer Networks", "ects": 5, "semester": 2, "language": "English", "description": "Demo course: TCP/IP, routing, network security."},
-    {"id": "dse-comp", "university_id": "demo-se", "name": "Compiler Construction", "ects": 6, "semester": 2, "language": "English", "description": "Demo course: lexical analysis, code generation."},
-    {"id": "dse-db", "university_id": "demo-se", "name": "Databases", "ects": 4, "semester": 2, "language": "English", "description": "Demo course: SQL, transactions, indexing."},
-    {"id": "dse-se", "university_id": "demo-se", "name": "Software Engineering", "ects": 4, "semester": 2, "language": "English", "description": "Demo course: testing, design patterns, version control."},
-]
-
-TEMP_MATCHES = [
-    # Lenoir (fictional) - deliberately high-match demo entry
-    {"university_id": "demo-fr", "home_course_id": "ac-ai", "partner_course_id": "dfr-ai", "label": "good", "explanation": "Demo match: full overlap."},
-    {"university_id": "demo-fr", "home_course_id": "ac-os", "partner_course_id": "dfr-os", "label": "good", "explanation": "Demo match: full overlap."},
-    {"university_id": "demo-fr", "home_course_id": "ac-net", "partner_course_id": "dfr-net", "label": "good", "explanation": "Demo match: full overlap."},
-    {"university_id": "demo-fr", "home_course_id": "ac-comp", "partner_course_id": "dfr-comp", "label": "partial", "explanation": "Demo match: parsing covered, code generation lighter.", "missing_topics": ["code generation"]},
-    {"university_id": "demo-fr", "home_course_id": "ac-db", "partner_course_id": "dfr-db", "label": "good", "explanation": "Demo match: full overlap."},
-    {"university_id": "demo-fr", "home_course_id": "ac-se", "partner_course_id": "dfr-se", "label": "good", "explanation": "Demo match: full overlap."},
-    # Serrano (fictional) - deliberately mixed-match demo entry
-    {"university_id": "demo-it", "home_course_id": "ac-ai", "partner_course_id": "dit-ai", "label": "good", "explanation": "Demo match: full overlap."},
-    {"university_id": "demo-it", "home_course_id": "ac-os", "partner_course_id": "dit-os", "label": "partial", "explanation": "Demo match: processes and threads covered, file systems lighter.", "missing_topics": ["file systems"]},
-    {"university_id": "demo-it", "home_course_id": "ac-net", "partner_course_id": "dit-net", "label": "good", "explanation": "Demo match: full overlap."},
-    {"university_id": "demo-it", "home_course_id": "ac-comp", "partner_course_id": None, "label": "none", "explanation": "Demo match: no compiler course this semester.", "missing_topics": ["lexical analysis", "parsing", "code generation"]},
-    {"university_id": "demo-it", "home_course_id": "ac-db", "partner_course_id": "dit-db", "label": "good", "explanation": "Demo match: full overlap."},
-    {"university_id": "demo-it", "home_course_id": "ac-se", "partner_course_id": "dit-se", "label": "partial", "explanation": "Demo match: version control and testing covered, patterns lighter.", "missing_topics": ["design patterns"]},
-    # Nowogard (fictional) - deliberately low-match demo entry
-    {"university_id": "demo-pl", "home_course_id": "ac-ai", "partner_course_id": "dpl-ai", "label": "partial", "explanation": "Demo match: neural networks covered, search and CSP missing.", "missing_topics": ["search", "constraint satisfaction"]},
-    {"university_id": "demo-pl", "home_course_id": "ac-os", "partner_course_id": None, "label": "none", "explanation": "Demo match: no operating systems course this semester.", "missing_topics": ["processes", "scheduling", "memory management"]},
-    {"university_id": "demo-pl", "home_course_id": "ac-net", "partner_course_id": "dpl-net", "label": "partial", "explanation": "Demo match: routing covered, sockets missing.", "missing_topics": ["sockets"]},
-    {"university_id": "demo-pl", "home_course_id": "ac-comp", "partner_course_id": None, "label": "none", "explanation": "Demo match: no compiler course this semester.", "missing_topics": ["lexical analysis", "parsing", "code generation"]},
-    {"university_id": "demo-pl", "home_course_id": "ac-db", "partner_course_id": "dpl-db", "label": "partial", "explanation": "Demo match: transactions covered, indexing lighter.", "missing_topics": ["indexing"]},
-    {"university_id": "demo-pl", "home_course_id": "ac-se", "partner_course_id": None, "label": "none", "explanation": "Demo match: no software engineering course this semester.", "missing_topics": ["agile methods", "testing", "design patterns", "version control"]},
-    # Nordvik (fictional) - deliberately high-match demo entry
-    {"university_id": "demo-se", "home_course_id": "ac-ai", "partner_course_id": "dse-ai", "label": "good", "explanation": "Demo match: full overlap."},
-    {"university_id": "demo-se", "home_course_id": "ac-os", "partner_course_id": "dse-os", "label": "good", "explanation": "Demo match: full overlap."},
-    {"university_id": "demo-se", "home_course_id": "ac-net", "partner_course_id": "dse-net", "label": "good", "explanation": "Demo match: full overlap."},
-    {"university_id": "demo-se", "home_course_id": "ac-comp", "partner_course_id": "dse-comp", "label": "good", "explanation": "Demo match: full overlap."},
-    {"university_id": "demo-se", "home_course_id": "ac-db", "partner_course_id": "dse-db", "label": "good", "explanation": "Demo match: full overlap."},
-    {"university_id": "demo-se", "home_course_id": "ac-se", "partner_course_id": "dse-se", "label": "good", "explanation": "Demo match: full overlap."},
-]
-# ========================================================== end temporary block
 
 MATCHES = [
     # St. Pölten
@@ -227,34 +150,20 @@ MATCHES = [
     {"university_id": "mate", "home_course_id": "ac-se", "partner_course_id": "mat-web", "label": "partial", "explanation": "Version control overlaps; testing and design patterns are not covered.", "missing_topics": ["testing", "design patterns"]},
 ]
 
-# Timeline template: offsets in days relative to start (S), arrival (A), end (E).
-TIMELINE_TEMPLATE = [
-    {"title": "Get the EHIC card", "stage": "before", "anchor": "S", "offset": -30},
-    {"title": "Sign the Learning Agreement", "stage": "before", "anchor": "S", "offset": -21},
-    {"title": "Book travel tickets", "stage": "before", "anchor": "S", "offset": -14},
-    {"title": "Confirm accommodation", "stage": "before", "anchor": "S", "offset": -10},
-    {"title": "Sign the grant contract", "stage": "before", "anchor": "S", "offset": -7},
-    {"title": "Confirm arrival at the university", "stage": "arrival", "anchor": "A", "offset": 0},
-    {"title": "Buy a local transit pass", "stage": "arrival", "anchor": "A", "offset": 3},
-    {"title": "Register your residence", "stage": "arrival", "anchor": "A", "offset": 7},
-    {"title": "Open a local bank account", "stage": "arrival", "anchor": "A", "offset": 7},
-    {"title": "Send arrival confirmation to UPT", "stage": "during", "anchor": "A", "offset": 10},
-    {"title": "Mid-term check-in with coordinator", "stage": "during", "anchor": "A", "offset": 45},
-    {"title": "Collect the Letter of Confirmation", "stage": "before-return", "anchor": "E", "offset": -14},
-    {"title": "Request the Transcript of Records", "stage": "before-return", "anchor": "E", "offset": -5},
-    {"title": "Submit documents to the Erasmus office", "stage": "after-return", "anchor": "E", "offset": 10},
-    {"title": "Finish the recognition of credits", "stage": "after-return", "anchor": "E", "offset": 30},
+# The steps the mobility platform does NOT track. Official documents and
+# their deadlines come from the platform (server/platform.py); these are the
+# practical steps around them. Offsets in days from the start (S), arrival (A)
+# or end (E) of the mobility.
+POLIGO_STEPS = [
+    {"title": "Apply at the host university (their online application form)", "stage": "before", "anchor": "S", "offset": -75},
+    {"title": "Apply for accommodation (host dorms or housing portal)", "stage": "before", "anchor": "S", "offset": -60},
+    {"title": "Register your address with the local authorities", "stage": "arrival", "anchor": "A", "offset": 7},
+    {"title": "Change the Learning Agreement if your courses changed (first 2 weeks)", "stage": "arrival", "anchor": "A", "offset": 14},
 ]
 
 STAGES = ["before", "arrival", "during", "before-return", "after-return"]
-STAGE_LABELS = {
-    "before": "Before departure",
-    "arrival": "Arrival (first 2 weeks)",
-    "during": "During",
-    "before-return": "Before return",
-    "after-return": "After return",
-}
 
+# Sample result returned by the scanner when no Claude API key is configured.
 WELCOME_DOC = {
     "document_type": "Rental contract",
     "language": "Portuguese",
@@ -272,7 +181,7 @@ WELCOME_DOC = {
         ],
         "bring": ["Passport or ID", "NIF (Portuguese tax number)", "Proof of enrolment"],
         "watch_out": "Late rent payments carry a surcharge of 20 EUR per day of delay.",
-        "keywords": [["Senhorio", "landlord"], ["Caução", "deposit"], ["Renda", "rent"], ["Fiador", "guarantor"]],
+        "keywords": [{"term": "Senhorio", "meaning": "landlord"}, {"term": "Caução", "meaning": "deposit"}, {"term": "Renda", "meaning": "rent"}, {"term": "Fiador", "meaning": "guarantor"}],
     },
 }
 
@@ -294,49 +203,18 @@ def seed():
         )
         conn.executemany(
             "INSERT OR IGNORE INTO universities (id, name, city, country, country_code, lat, lng, languages, website, greeting) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            [(u["id"], u["name"], u["city"], u["country"], u["country_code"], u["lat"], u["lng"], j(u["languages"]), u["website"], u["greeting"]) for u in UNIVERSITIES + TEMP_UNIVERSITIES],
+            [(u["id"], u["name"], u["city"], u["country"], u["country_code"], u["lat"], u["lng"], j(u["languages"]), u["website"], u["greeting"]) for u in UNIVERSITIES],
         )
         conn.executemany(
             "UPDATE universities SET website = ?, greeting = ? WHERE id = ?",
-            [(u["website"], u["greeting"], u["id"]) for u in UNIVERSITIES + TEMP_UNIVERSITIES],
+            [(u["website"], u["greeting"], u["id"]) for u in UNIVERSITIES],
         )
         conn.executemany(
             "INSERT OR IGNORE INTO partner_courses (id, university_id, name, ects, semester, language, description) VALUES (?,?,?,?,?,?,?)",
-            [(c["id"], c["university_id"], c["name"], c["ects"], c["semester"], c["language"], c["description"]) for c in PARTNER_COURSES + TEMP_PARTNER_COURSES],
+            [(c["id"], c["university_id"], c["name"], c["ects"], c["semester"], c["language"], c["description"]) for c in PARTNER_COURSES],
         )
         conn.executemany(
             "INSERT OR IGNORE INTO matches (program, university_id, home_course_id, partner_course_id, label, explanation, missing_topics) VALUES (?,?,?,?,?,?,?)",
-            [(PROGRAM, m["university_id"], m["home_course_id"], m["partner_course_id"], m["label"], m["explanation"], j(m.get("missing_topics", []))) for m in MATCHES + TEMP_MATCHES],
+            [(PROGRAM, m["university_id"], m["home_course_id"], m["partner_course_id"], m["label"], m["explanation"], j(m.get("missing_topics", []))) for m in MATCHES],
         )
         return rows() > before
-
-
-# Project paperwork deadlines: months before the mobility start date.
-# Served by /api/deadlines and filtered client-side by the types the user
-# picked during onboarding.
-PROJECT_DEADLINES = [
-    {"type": "Semester exchange", "title": "Nomination sent by your faculty", "months_before": 5,
-     "note": "Your coordinator nominates you at the partner university."},
-    {"type": "Semester exchange", "title": "Accommodation applications", "months_before": 4,
-     "note": "Dormitories and partner housing portals open around this time."},
-    {"type": "Semester exchange", "title": "Learning Agreement - first signature", "months_before": 3,
-     "note": "Signed by you, UPT coordinator, partner coordinator."},
-    {"type": "Semester exchange", "title": "Grant contract signing", "months_before": 2,
-     "note": "Bring your bank details (IBAN) to the international office."},
-    {"type": "Semester exchange", "title": "Enrolment / registration at the host", "months_before": 1,
-     "note": "Complete the partner university online registration."},
-    {"type": "Summer school", "title": "Application submission", "months_before": 3,
-     "note": "Transcript and motivation letter are usually required."},
-    {"type": "Summer school", "title": "Tuition deposit", "months_before": 2,
-     "note": "Non-refundable in most programmes - check the cancellation policy."},
-    {"type": "Summer school", "title": "Final payment", "months_before": 1,
-     "note": "Full tuition and accommodation are due before arrival."},
-    {"type": "Research stay", "title": "Host agreement / invitation letter", "months_before": 3,
-     "note": "Required by the international office before funding."},
-    {"type": "Research stay", "title": "Work plan approved by both supervisors", "months_before": 2,
-     "note": "Defines the scope and credit conversion of your stay."},
-    {"type": "Sports programme", "title": "Registration window", "months_before": 2,
-     "note": "Erasmus+ sport events fill up fast - register early."},
-    {"type": "Sports programme", "title": "Medical certificate", "months_before": 1,
-     "note": "Standard fitness declaration for competitive events."},
-]
